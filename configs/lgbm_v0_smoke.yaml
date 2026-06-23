@@ -1,0 +1,27 @@
+# LightGBM V0 *smoke* configuration.
+# Trains on the small data/interim/train_smoke.parquet to validate the
+# end-to-end engineering loop only. The resulting score is NOT meaningful —
+# generate the smoke parquet first with js2024-make-smoke-data.
+# Paths are resolved relative to the project root.
+
+train_path: data/interim/train_smoke.parquet
+output_dir: outputs
+model_dir: models
+
+# Optional inclusive date_id bounds applied at load time (null = no bound).
+start_date_id: null
+end_date_id: null
+
+# Holdout split: last `valid_days` distinct date_ids are validation,
+# with `gap_days` dropped between train and valid.
+valid_days: 3
+gap_days: 0
+
+# Model hyperparameters (small/fast — smoke only).
+random_state: 42
+n_estimators: 100
+learning_rate: 0.05
+num_leaves: 31
+subsample: 0.8
+colsample_bytree: 0.8
+early_stopping_rounds: 20

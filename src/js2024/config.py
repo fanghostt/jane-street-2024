@@ -57,10 +57,41 @@ class LGBMConfig:
     early_stopping_rounds: int
 
 
+def validate_lgbm_config(config: LGBMConfig) -> LGBMConfig:
+    """Validate hyperparameter ranges; raise ``ValueError`` with a clear message.
+
+    Returns ``config`` unchanged so it can be used inline.
+    """
+    errors: list[str] = []
+    if config.valid_days <= 0:
+        errors.append(f"valid_days must be > 0, got {config.valid_days}")
+    if config.gap_days < 0:
+        errors.append(f"gap_days must be >= 0, got {config.gap_days}")
+    if config.n_estimators <= 0:
+        errors.append(f"n_estimators must be > 0, got {config.n_estimators}")
+    if config.early_stopping_rounds <= 0:
+        errors.append(
+            f"early_stopping_rounds must be > 0, got {config.early_stopping_rounds}"
+        )
+    if config.learning_rate <= 0:
+        errors.append(f"learning_rate must be > 0, got {config.learning_rate}")
+    if config.num_leaves <= 1:
+        errors.append(f"num_leaves must be > 1, got {config.num_leaves}")
+    if not (0 < config.subsample <= 1):
+        errors.append(f"subsample must be in (0, 1], got {config.subsample}")
+    if not (0 < config.colsample_bytree <= 1):
+        errors.append(
+            f"colsample_bytree must be in (0, 1], got {config.colsample_bytree}"
+        )
+    if errors:
+        raise ValueError("Invalid LGBM config:\n- " + "\n- ".join(errors))
+    return config
+
+
 def load_lgbm_config(path: str | Path) -> LGBMConfig:
     """Load and validate a YAML config into an :class:`LGBMConfig`."""
     raw = load_yaml_config(path)
-    return LGBMConfig(
+    config = LGBMConfig(
         train_path=raw["train_path"],
         output_dir=raw["output_dir"],
         model_dir=raw["model_dir"],
@@ -76,3 +107,4 @@ def load_lgbm_config(path: str | Path) -> LGBMConfig:
         colsample_bytree=float(raw.get("colsample_bytree", 0.8)),
         early_stopping_rounds=int(raw.get("early_stopping_rounds", 100)),
     )
+    return validate_lgbm_config(config)
