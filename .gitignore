@@ -3,6 +3,11 @@ data/raw/*
 data/interim/*
 data/features/*
 
+# Kaggle credentials & downloaded archives — never commit
+kaggle.json
+**/kaggle.json
+*.zip
+
 # Model & output artifacts
 models/*
 outputs/oof/*

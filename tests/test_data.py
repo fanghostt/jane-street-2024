@@ -8,7 +8,9 @@ from js2024.data import (
     WEIGHT_COLUMN,
     get_date_id_range,
     get_default_columns,
+    get_required_train_columns,
     load_train_data,
+    resolve_parquet_scan_path,
     validate_data_path,
 )
 
@@ -65,3 +67,55 @@ def test_collect_false_returns_lazyframe(tmp_path):
     lf = load_train_data(path, collect=False)
     assert isinstance(lf, pl.LazyFrame)
     assert isinstance(lf.collect(), pl.DataFrame)
+
+
+def test_required_train_columns():
+    assert get_required_train_columns() == get_default_columns(
+        include_target=True, include_weight=True
+    )
+
+
+def test_resolve_scan_path_single_file(tmp_path):
+    path = _make_parquet(tmp_path)
+    resolved = resolve_parquet_scan_path(path)
+    assert resolved == path
+    assert load_train_data(path).height == 12
+
+
+def test_resolve_scan_path_directory_with_parquet(tmp_path):
+    # _make_parquet writes train.parquet directly under tmp_path.
+    _make_parquet(tmp_path)
+    resolved = resolve_parquet_scan_path(tmp_path)
+    assert str(resolved) == str(tmp_path / "*.parquet")
+    # load_train_data should read the directory as a glob.
+    df = load_train_data(tmp_path)
+    assert df.height == 12
+
+
+def test_resolve_scan_path_partitioned_directory(tmp_path):
+    # Mimic Kaggle's train.parquet/partition_id=*/part-0.parquet layout.
+    root = tmp_path / "train.parquet"
+    for pid in (0, 1):
+        part_dir = root / f"partition_id={pid}"
+        part_dir.mkdir(parents=True)
+        df = pl.DataFrame({"date_id": [pid, pid], "x": [1.0, 2.0]})
+        df.write_parquet(part_dir / "part-0.parquet")
+
+    resolved = resolve_parquet_scan_path(root)
+    assert str(resolved) == str(root / "**" / "*.parquet")
+    out = pl.scan_parquet(resolved).collect()
+    assert out.height == 4
+    assert set(out.get_column("date_id").to_list()) == {0, 1}
+
+
+def test_resolve_scan_path_empty_dir_raises(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(ValueError) as exc:
+        resolve_parquet_scan_path(empty)
+    assert "no parquet" in str(exc.value).lower()
+
+
+def test_resolve_scan_path_missing_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        resolve_parquet_scan_path(tmp_path / "nope")
