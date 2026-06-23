@@ -13,6 +13,7 @@ models/*
 outputs/oof/*
 outputs/submissions/*
 outputs/reports/*
+outputs/split_experiments/
 
 # Keep the directory structure
 !.gitkeep

@@ -174,6 +174,27 @@ If the data is missing, the CLI prints a clear error pointing to
 `data/raw/train.parquet` and exits non-zero — it does not crash or fabricate
 results.
 
+### Split-stability experiments
+
+To check that the recent700 baseline R² is not a single-split artifact, run the
+same raw-feature model across a grid of `valid_days` × `gap_days` (the big train
+frame is loaded once and reused). Heavy per-split artifacts go under
+`outputs/split_experiments/` (gitignored); the committed output is the markdown
+doc.
+
+```bash
+uv run js2024-run-lgbm-split-experiments \
+  --base-config configs/lgbm_v0_recent700.yaml \
+  --valid-days 100,200,300 --gap-days 0,5,20 \
+  --out-dir outputs/split_experiments/lgbm_v0_recent700 \
+  --docs-out docs/experiments/lgbm_v0_split_experiments.md
+```
+
+Useful flags: `--dry-run` (print the grid only), `--limit N` (first N combos),
+`--n-estimators` / `--early-stopping-rounds` (quick-debug overrides). Results
+are recorded in
+[`docs/experiments/lgbm_v0_split_experiments.md`](docs/experiments/lgbm_v0_split_experiments.md).
+
 ## Tests
 
 ```bash

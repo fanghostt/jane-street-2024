@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -46,26 +47,61 @@ def _series_summary(values: np.ndarray) -> dict[str, float]:
     }
 
 
-def run(config: LGBMConfig) -> float:
-    """Run the full baseline pipeline; return the validation weighted zero-mean R²."""
-    import lightgbm as lgb
+@dataclass
+class LGBMRunResult:
+    """Structured result of a single :func:`run` invocation."""
 
-    train_path = resolve_project_path(config.train_path)
-    # Fail early & clearly if the data has not been placed yet.
-    validate_data_path(train_path)
+    run_name: str
+    score: float
+    model_path: Path
+    oof_path: Path
+    report_path: Path
+    split_summary: dict
+    feature_count: int
+    best_iteration: int
+    prediction_summary: dict
+    target_summary: dict
+    feature_importance_top20: list[tuple[str, int]] = field(default_factory=list)
+
+
+def run(
+    config: LGBMConfig,
+    run_name: str = "lgbm_v0",
+    df: pl.DataFrame | None = None,
+) -> LGBMRunResult:
+    """Run the full baseline pipeline and return a structured result.
+
+    Parameters
+    ----------
+    config
+        The (already validated) LGBM configuration.
+    run_name
+        Artifact basename — model/OOF/report files are named after it. Defaults
+        to ``"lgbm_v0"`` so the standard CLI keeps writing ``lgbm_v0.*``.
+    df
+        Optional pre-loaded train frame. When provided the data load is skipped
+        and the split is taken from ``df`` directly — this lets a caller load
+        the (large) parquet once and reuse it across many splits. When ``None``
+        the frame is loaded from ``config.train_path``.
+    """
+    import lightgbm as lgb
 
     feature_cols = get_v0_feature_columns(include_symbol=True, include_time=True)
     # Columns we must read: ids + features + target + weight.
     columns = get_default_columns(include_target=True, include_weight=True)
 
-    print(f"[js2024] Loading data from {train_path} ...")
-    df = load_train_data(
-        train_path,
-        columns=columns,
-        start_date_id=config.start_date_id,
-        end_date_id=config.end_date_id,
-        collect=True,
-    )
+    if df is None:
+        train_path = resolve_project_path(config.train_path)
+        # Fail early & clearly if the data has not been placed yet.
+        validate_data_path(train_path)
+        print(f"[js2024] Loading data from {train_path} ...")
+        df = load_train_data(
+            train_path,
+            columns=columns,
+            start_date_id=config.start_date_id,
+            end_date_id=config.end_date_id,
+            collect=True,
+        )
     min_date, max_date = get_date_id_range(df)
     print(f"[js2024] Loaded {df.height:,} rows; date_id range [{min_date}, {max_date}]")
 
@@ -115,18 +151,18 @@ def run(config: LGBMConfig) -> float:
     score = weighted_zero_mean_r2(y_valid.to_numpy(), preds, w_valid.to_numpy())
     print(f"[js2024] Validation weighted zero-mean R²: {score:.6f}")
 
-    # --- Persist artifacts ---
+    # --- Persist artifacts (namespaced by run_name) ---
     model_dir = resolve_project_path(config.model_dir)
     output_dir = resolve_project_path(config.output_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "oof").mkdir(parents=True, exist_ok=True)
     (output_dir / "reports").mkdir(parents=True, exist_ok=True)
 
-    model_path = model_dir / "lgbm_v0.txt"
+    model_path = model_dir / f"{run_name}.txt"
     model.booster_.save_model(str(model_path))
     print(f"[js2024] Saved model -> {model_path}")
 
-    oof_path = output_dir / "oof" / "lgbm_v0_valid_predictions.parquet"
+    oof_path = output_dir / "oof" / f"{run_name}_valid_predictions.parquet"
     oof = valid_df.select(["date_id", "time_id", "symbol_id", TARGET_COLUMN, WEIGHT_COLUMN])
     oof = oof.with_columns(pl.Series("prediction", preds))
     oof.write_parquet(oof_path)
@@ -137,20 +173,35 @@ def run(config: LGBMConfig) -> float:
         key=lambda kv: kv[1],
         reverse=True,
     )
-    report_path = output_dir / "reports" / "lgbm_v0_report.md"
+    report_path = output_dir / "reports" / f"{run_name}_report.md"
+    prediction_summary = _series_summary(preds)
+    target_summary = _series_summary(y_valid.to_numpy())
     write_lgbm_report(
         path=report_path,
         config=config,
         split_summary=split_summary,
         score=score,
         feature_cols=feature_cols,
-        prediction_summary=_series_summary(preds),
-        target_summary=_series_summary(y_valid.to_numpy()),
+        prediction_summary=prediction_summary,
+        target_summary=target_summary,
         feature_importance=importances,
     )
     print(f"[js2024] Saved report -> {report_path}")
 
-    return score
+    best_iteration = int(getattr(model, "best_iteration_", 0) or 0)
+    return LGBMRunResult(
+        run_name=run_name,
+        score=float(score),
+        model_path=model_path,
+        oof_path=oof_path,
+        report_path=report_path,
+        split_summary=dict(split_summary),
+        feature_count=len(feature_cols),
+        best_iteration=best_iteration,
+        prediction_summary=prediction_summary,
+        target_summary=target_summary,
+        feature_importance_top20=importances[:20],
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

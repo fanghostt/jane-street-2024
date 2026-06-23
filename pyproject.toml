@@ -22,6 +22,7 @@ js2024-data-check = "js2024.data_check:main"
 js2024-download-data = "js2024.download_data:main"
 js2024-make-smoke-data = "js2024.make_smoke_data:main"
 js2024-data-profile = "js2024.data_profile:main"
+js2024-run-lgbm-split-experiments = "js2024.run_lgbm_split_experiments:main"
 
 [dependency-groups]
 dev = [
