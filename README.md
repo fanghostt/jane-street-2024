@@ -138,7 +138,21 @@ must not be committed.
 
 ## Run the baseline
 
-From the project root, once `data/raw/train.parquet` is in place:
+From the project root, once `data/raw/train.parquet` is in place. The **formal
+baseline starts from `recent700`** (trains on `date_id >= 700`, the start point
+we use for later parity with `evgeniavolkova/kagglejanestreet`):
+
+```bash
+uv run js2024-train-lgbm --config configs/lgbm_v0_recent700.yaml
+```
+
+A full-data config is also provided (heavier — prefer `recent700` first):
+
+```bash
+uv run js2024-train-lgbm --config configs/lgbm_v0_full.yaml
+```
+
+The original `configs/lgbm_v0.yaml` remains as a generic example:
 
 ```bash
 uv run js2024-train-lgbm --config configs/lgbm_v0.yaml
@@ -146,12 +160,15 @@ uv run js2024-train-lgbm --config configs/lgbm_v0.yaml
 uv run python -m js2024.train_lgbm --config configs/lgbm_v0.yaml
 ```
 
-Outputs:
+Outputs (all **gitignored — do not commit**):
 
 - `models/lgbm_v0.txt` — trained LightGBM booster
 - `outputs/oof/lgbm_v0_valid_predictions.parquet` — validation predictions
 - `outputs/reports/lgbm_v0_report.md` — run report (metric, distributions,
   top-30 feature importance)
+
+A committed, large-file-free summary of baseline runs lives in
+[`docs/experiments/lgbm_v0_baseline.md`](docs/experiments/lgbm_v0_baseline.md).
 
 If the data is missing, the CLI prints a clear error pointing to
 `data/raw/train.parquet` and exits non-zero — it does not crash or fabricate
