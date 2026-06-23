@@ -1,0 +1,124 @@
+# Jane Street 2024 — Rebuild
+
+A clean, reproducible financial ML pipeline rebuilt from scratch for the Kaggle
+[Jane Street Real-Time Market Data Forecasting (2024)](https://www.kaggle.com/competitions/jane-street-real-time-market-data-forecasting)
+competition.
+
+## Project goals
+
+- Rebuild a maintainable, reproducible financial ML pipeline **from zero**.
+- **V0 (current):** a single LightGBM baseline — the competition metric, a
+  time-aware date split, lean data loading, and an end-to-end training CLI.
+- **Later milestones** (not implemented yet) target parity with
+  [`evgeniavolkova/kagglejanestreet`](https://github.com/evgeniavolkova/kagglejanestreet):
+  GRU models, auxiliary targets, online learning, and ensembling.
+
+This V0 is deliberately *not* a copy of that repo — it is a foundation we can
+extend toward it.
+
+## Data
+
+The competition data is **not** shipped with this repo and is never committed.
+
+1. Download the competition data from Kaggle.
+2. Place the training file at `data/raw/train.parquet`.
+
+`data/`, `models/`, and `outputs/` artifacts are gitignored (directory structure
+is preserved via `.gitkeep`).
+
+The expected schema used by V0:
+
+- IDs: `date_id`, `time_id`, `symbol_id`
+- Features: `feature_00` … `feature_78` (79 columns)
+- Weight: `weight`
+- Target: `responder_6`
+
+## Install
+
+This project is managed with [uv](https://docs.astral.sh/uv/). From the project
+root:
+
+```bash
+uv sync
+```
+
+This creates `.venv/`, installs all dependencies (pinned via `uv.lock`), and
+installs the `js2024` package itself in editable mode — so `import js2024` works
+without setting `PYTHONPATH`. The `dev` dependency group (which includes
+`pytest`) is installed by default.
+
+`pyproject.toml` + `uv.lock` are the single source of truth for dependencies.
+
+## Run the baseline
+
+From the project root, once `data/raw/train.parquet` is in place:
+
+```bash
+uv run js2024-train-lgbm --config configs/lgbm_v0.yaml
+# or, equivalently:
+uv run python -m js2024.train_lgbm --config configs/lgbm_v0.yaml
+```
+
+Outputs:
+
+- `models/lgbm_v0.txt` — trained LightGBM booster
+- `outputs/oof/lgbm_v0_valid_predictions.parquet` — validation predictions
+- `outputs/reports/lgbm_v0_report.md` — run report (metric, distributions,
+  top-30 feature importance)
+
+If the data is missing, the CLI prints a clear error pointing to
+`data/raw/train.parquet` and exits non-zero — it does not crash or fabricate
+results.
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+Tests construct tiny in-memory/temp parquet fixtures and never train a large
+model or require the real competition data.
+
+## The metric
+
+The competition uses a **sample-weighted, zero-mean R²**:
+
+```
+R2 = 1 - sum(w_i * (y_i - yhat_i)^2) / sum(w_i * y_i^2)
+```
+
+The denominator uses `y_i^2`, not variance around a weighted mean, so this is
+**not** `sklearn.metrics.r2_score`. A constant-zero prediction scores exactly 0;
+a perfect prediction scores 1; bad predictions go negative. See
+`src/js2024/metrics.py` and `notebooks/01_metric_and_split.md`.
+
+## Repository layout
+
+```
+pyproject.toml  # project metadata, deps, console script, pytest config
+uv.lock         # pinned dependency lockfile (commit this)
+configs/        # YAML run configs
+data/           # raw / interim / features (gitignored)
+models/         # trained models (gitignored)
+outputs/        # oof predictions, reports, submissions (gitignored)
+notebooks/      # markdown notes (EDA, metric & split)
+src/js2024/     # package: metrics, validation, data, features, config, training
+tests/          # pytest suite
+```
+
+## V0 acceptance criteria
+
+- [x] Tests pass (`uv run pytest`)
+- [x] Competition metric implemented correctly
+- [x] Time-aware date split implemented correctly
+- [x] CLI gives a clear error when data is missing (no crash, no fake results)
+- [ ] With data present: produces `model` / `oof` / `report` (run once data is placed)
+
+## Explicitly not implemented yet
+
+- GRU / neural models
+- Auxiliary targets
+- Online learning
+- Ensembling
+- Kaggle inference gateway / submission packaging
+- Full `evgeniavolkova/kagglejanestreet` parity

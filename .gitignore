@@ -1,0 +1,26 @@
+# Data — never commit competition data
+data/raw/*
+data/interim/*
+data/features/*
+
+# Model & output artifacts
+models/*
+outputs/oof/*
+outputs/submissions/*
+outputs/reports/*
+
+# Keep the directory structure
+!.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Env / misc
+.env
+.DS_Store
