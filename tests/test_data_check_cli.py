@@ -29,3 +29,13 @@ def test_cli_missing_columns_fails(raw_dir_factory, capsys):
 def test_cli_nonexistent_dir_fails(tmp_path, capsys):
     rc = main(["--raw-dir", str(tmp_path / "nope")])
     assert rc == 1
+
+
+def test_cli_missing_train_reports_not_checked(raw_dir_factory, capsys):
+    # raw dir exists but train.parquet is absent -> schema can't be checked.
+    raw = raw_dir_factory(missing_files=["train.parquet"])
+    rc = main(["--raw-dir", str(raw)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "not checked" in out
+    assert "missing columns:** none" not in out

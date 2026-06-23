@@ -51,7 +51,10 @@ def render_report(report: dict[str, Any]) -> str:
     lines.append(f"- **date_id range:** {report['date_min']} … {report['date_max']}")
     lines.append(f"- **sample rows checked:** {report['sample_rows_checked']}")
     missing = report["missing_train_columns"]
-    if missing:
+    if missing is None:
+        # train.parquet absent / unscannable -> schema was never checked.
+        lines.append("- **missing columns:** not checked")
+    elif missing:
         lines.append(f"- **MISSING columns ({len(missing)}):** {missing}")
     else:
         lines.append("- **missing columns:** none")
