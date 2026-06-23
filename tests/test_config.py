@@ -1,5 +1,3 @@
-import dataclasses
-
 import pytest
 
 from js2024.config import (
