@@ -162,11 +162,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    config = load_lgbm_config(args.config)
     try:
+        config = load_lgbm_config(args.config)
         run(config)
-    except FileNotFoundError as exc:
-        # Clean, actionable message instead of a traceback when data is missing.
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        # Clean, actionable message instead of a traceback for the common
+        # config / data errors (missing file, bad hyperparameter, missing
+        # config key, missing/invalid columns, too-small date range, ...).
         print(f"[js2024] ERROR: {exc}", file=sys.stderr)
         return 1
     return 0

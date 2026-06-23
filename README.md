@@ -112,6 +112,30 @@ without setting `PYTHONPATH`. The `dev` dependency group (which includes
 
 `pyproject.toml` + `uv.lock` are the single source of truth for dependencies.
 
+## Smoke run (validate the loop first)
+
+Before training on the full 11.5 GB dataset, sanity-check the end-to-end loop on
+the tiny smoke parquet. First generate it (see [Data setup](#4-make-a-small-smoke-dataset)):
+
+```bash
+uv run js2024-make-smoke-data \
+  --train-path data/raw/train.parquet \
+  --out-path data/interim/train_smoke.parquet \
+  --start-date-id 1200 --end-date-id 1210
+```
+
+Then run the baseline against the smoke config:
+
+```bash
+uv run js2024-train-lgbm --config configs/lgbm_v0_smoke.yaml
+```
+
+This trains a small (100-tree) model on a handful of days purely to confirm the
+data → split → train → score → artifact loop works. **The smoke score is not a
+real result** — with only a few train days it is essentially noise (near zero or
+slightly negative). The generated `model` / `oof` / `report` are gitignored and
+must not be committed.
+
 ## Run the baseline
 
 From the project root, once `data/raw/train.parquet` is in place:
