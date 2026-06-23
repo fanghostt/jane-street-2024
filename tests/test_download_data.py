@@ -76,6 +76,17 @@ def test_credentials_kaggle_json_detected(monkeypatch, tmp_path):
     assert have_kaggle_credentials() is True
 
 
+def test_credentials_access_token_detected(monkeypatch, tmp_path):
+    # Newer kaggle CLI stores a ~/.kaggle/access_token instead of kaggle.json.
+    _clear_creds(monkeypatch, tmp_path)
+    cfg = tmp_path / "kaggle_home"
+    cfg.mkdir()
+    (cfg / "access_token").write_text("KGAT_xxx", encoding="utf-8")
+    monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(cfg))
+    assert have_kaggle_credentials() is True
+    ensure_kaggle_credentials()  # should not raise
+
+
 # --- extract / force -------------------------------------------------------
 
 

@@ -30,10 +30,14 @@ from .data_contract import check_raw_data_contract, contract_ok
 
 DEFAULT_COMPETITION = "jane-street-real-time-market-data-forecasting"
 
+# Credential files the kaggle CLI recognizes inside its config dir.
+_CREDENTIAL_FILES = ("kaggle.json", "access_token")
+
 _CREDENTIALS_HELP = (
     "Kaggle credentials were not found. To download competition data you must:\n"
     "  1. Create an API token on https://www.kaggle.com/settings (Account -> "
-    "Create New Token) and save it to ~/.kaggle/kaggle.json,\n"
+    "Create New Token). Save the downloaded kaggle.json to ~/.kaggle/kaggle.json,\n"
+    "     OR save a newer ~/.kaggle/access_token,\n"
     "     OR export KAGGLE_USERNAME and KAGGLE_KEY in your environment.\n"
     "  2. Accept the competition rules on the Kaggle website for "
     f"'{DEFAULT_COMPETITION}'.\n"
@@ -55,10 +59,15 @@ def _kaggle_config_dir() -> Path:
 
 
 def have_kaggle_credentials() -> bool:
-    """True if a kaggle.json file or KAGGLE_USERNAME/KAGGLE_KEY env vars are present."""
+    """True if KAGGLE_USERNAME/KAGGLE_KEY env vars or a kaggle credential file exist.
+
+    Recognizes both the classic ``kaggle.json`` and the newer ``access_token``
+    file that recent kaggle CLI versions write into the config dir.
+    """
     if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
         return True
-    return (_kaggle_config_dir() / "kaggle.json").is_file()
+    config_dir = _kaggle_config_dir()
+    return any((config_dir / name).is_file() for name in _CREDENTIAL_FILES)
 
 
 def ensure_kaggle_credentials() -> None:
