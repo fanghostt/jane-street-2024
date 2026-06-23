@@ -19,12 +19,9 @@ extend toward it.
 ## Data
 
 The competition data is **not** shipped with this repo and is never committed.
-
-1. Download the competition data from Kaggle.
-2. Place the training file at `data/raw/train.parquet`.
-
-`data/`, `models/`, and `outputs/` artifacts are gitignored (directory structure
-is preserved via `.gitkeep`).
+Nothing under `data/` (raw downloads, the Kaggle zip, smoke parquets) and no
+`kaggle.json` is ever added to git — `data/`, `models/`, and `outputs/` artifacts
+are gitignored (directory structure is preserved via `.gitkeep`).
 
 The expected schema used by V0:
 
@@ -32,6 +29,72 @@ The expected schema used by V0:
 - Features: `feature_00` … `feature_78` (79 columns)
 - Weight: `weight`
 - Target: `responder_6`
+
+Kaggle ships `train.parquet` as a *partitioned directory*
+(`data/raw/train.parquet/partition_id=*/part-0.parquet`). The loader handles both
+that directory layout and a single `.parquet` file transparently.
+
+## Data setup
+
+### 1. Configure Kaggle credentials (local only)
+
+The download tool defers entirely to the official `kaggle` CLI and never reads,
+prints, or stores your credentials itself. Provide them in **one** of two ways:
+
+- Save an API token to `~/.kaggle/kaggle.json` (Kaggle → *Settings* →
+  *Create New Token*), or
+- Export `KAGGLE_USERNAME` and `KAGGLE_KEY` in your environment.
+
+You must also **accept the competition rules** on the Kaggle website for
+`jane-street-real-time-market-data-forecasting`, or downloads will be rejected.
+
+### 2. Download the competition data
+
+```bash
+uv run js2024-download-data \
+  --competition jane-street-real-time-market-data-forecasting \
+  --out-dir data/raw
+```
+
+Downloads + extracts into `data/raw` (existing files are kept unless you pass
+`--force`) and then runs the contract check automatically.
+
+### 3. Check the raw data contract
+
+```bash
+uv run js2024-data-check --raw-dir data/raw
+```
+
+Verifies the required files (`train.parquet`, `lags.parquet`, `features.csv`,
+`responders.csv`) exist and that `train` exposes the expected schema. Exits
+non-zero if anything is missing.
+
+### 4. Make a small smoke dataset
+
+```bash
+uv run js2024-make-smoke-data \
+  --train-path data/raw/train.parquet \
+  --out-path data/interim/train_smoke.parquet \
+  --start-date-id 1200 --end-date-id 1210
+```
+
+Carves a tiny date range out of the real train data for fast local iteration.
+The smoke parquet lives under `data/interim` and is **not** committed. (Wiring a
+smoke-data baseline config is left for a later PR; this PR only provides the
+command.)
+
+### 5. Profile the data
+
+```bash
+uv run js2024-data-profile \
+  --train-path data/raw/train.parquet \
+  --out outputs/reports/data_profile.md \
+  --start-date-id 1200 --end-date-id 1698
+```
+
+Writes a markdown profile (row count, date range, symbol/time cardinality,
+target & weight distributions, top-30 features by missing ratio). All stats are
+computed lazily; restrict the date range if a full scan is too slow.
 
 ## Install
 
