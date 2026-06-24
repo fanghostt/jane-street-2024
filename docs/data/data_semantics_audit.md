@@ -35,6 +35,13 @@ Read-only audit of `data/raw/*`. No model is trained, no feature is engineered a
 - weight summary: mean=2.009445 | std=1.129388 | min=0.149967 | max=10.240419
 - **all responders clipped to [-5, 5]: yes** (observed per-responder min/max: responder_0=[-5.000000,5.000000], responder_1=[-5.000000,5.000000], responder_2=[-5.000000,5.000000], responder_3=[-5.000000,5.000000], responder_4=[-5.000000,5.000000], responder_5=[-5.000000,5.000000], responder_6=[-5.000000,5.000000], responder_7=[-5.000000,5.000000], responder_8=[-5.000000,5.000000])
 
+**Observed panel structure (real Kaggle data).** `train.parquet` is a `(date_id × time_id × symbol_id)` panel, not a flat table:
+
+- **`weight` is constant within each `(date_id, symbol_id)`** — every intraday `time_id` of a given symbol-day carries the same weight (verified: `n_unique(weight) == 1` per symbol on date 0). Weight is a per-symbol-per-day scalar broadcast across the day.
+- **The symbol universe grows over time**: ~8 symbols on `date_id=0`, 13 by day 100, 28 by day 500, 35 by day 1000, 39 by day 1698. Instruments are phased in, so early dates cover far fewer symbols.
+- **`time_id` is not a fixed grid**: the number of intraday buckets varies by day (≈849 on date 0 vs 968 on date 1698).
+- **Features have a warm-up period**: on `date_id=0` only 44/79 features are populated; several (`feature_00..04`, `21`, `26`, `27`, `31`) are 100% null early and only appear once enough history exists.
+
 ## 3. test.parquet audit
 
 - schema columns: **85**
@@ -45,6 +52,8 @@ Read-only audit of `data/raw/*`. No model is trained, no feature is engineered a
 - date_id min/max: 0 … 0; time_id min/max: 0 … 0; symbol_id n_unique: 39
 
 **Conclusion:** `test.parquet` is a *mock* of the evaluation API input (one served batch: `row_id`, ids, `weight`, `is_scored`, features, but no `responder_6`). It exists for API/inference compatibility, **not** local model evaluation. Because there is no label, no R² / weighted-R² can be computed against it locally.
+
+**The mock is hollow (real Kaggle data).** Beyond the missing label, the packaged `test.parquet` carries **no real feature values**: all 79 feature columns are `0.0` / `-0.0` (0/79 have any non-zero value; 64/79 are non-null but literally zero). Only `weight` is populated and `is_scored` is `false` for all 39 rows (one row per symbol at `date_id=0`, `time_id=0`). So it is purely a schema/format example for the inference gateway and carries no modelling signal whatsoever.
 
 ## 4. lags.parquet audit
 
@@ -59,6 +68,8 @@ Read-only audit of `data/raw/*`. No model is trained, no feature is engineered a
 **Semantics:** at a new `date_id` D, the evaluation API delivers the responders from `date_id` D-1 (all `time_id`s of that prior date) as `responder_*_lag_1`, handed over at the **first `time_id` of D**. They are the only responder information available at inference time — the live API never reveals current-date responders.
 
 **Local reconstruction:** for train-time experiments these lags can be rebuilt from `train.parquet` responders by shifting one `date_id` forward (responders of D-1 become features for D). This must avoid using current- or future-date responders, or it leaks the target. (V0 raw LGBM does not use lags at all.)
+
+**The packaged lags are illustrative (real Kaggle data).** Unlike the hollow `test.parquet`, the lag *values* here are real numbers, but they do **not** correspond to this `train.parquet`: the mock covers all 39 symbols at `date_id=0` whereas train's `date_id=0` only has ~8 symbols, and the lag values do not match train's date-0 responders. Treat the shipped `lags.parquet` as a synthetic format example; reconstruct real lags from train as described above.
 
 ## 5. features.csv audit
 
@@ -156,6 +167,7 @@ Verified with the Kaggle CLI on 2026-06-24 (`kaggle competitions list -s jane-st
 - A random split is **invalid**: `date_id`/`time_id` are chronological, so random folds leak future information into the past.
 - `test.parquet` is **not** local validation (no label).
 - Lag features require careful leakage control: only D-1 (and earlier) responders may inform date D.
+- The panel structure (section 2) shapes the split design: the symbol universe grows over time (≈8→39), early dates have a feature warm-up with many nulls, and `weight` is a per-`(date_id, symbol_id)` scalar — so recent-window validation is cleaner than full history, and weighted metrics should respect the per-symbol-day weighting.
 - The next stage should define a **split-protocol registry**:
   - A. `recent700_v200_g0` — recent 700 days, 200-day valid, gap 0
   - B. repo-style 2-fold CV

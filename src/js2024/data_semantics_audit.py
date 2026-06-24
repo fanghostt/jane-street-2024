@@ -459,6 +459,32 @@ def render_docs(results: dict[str, Any]) -> str:
     else:
         L.append("_train.parquet not found in raw dir._")
     L.append("")
+    L.append(
+        "**Observed panel structure (real Kaggle data).** `train.parquet` is a "
+        "`(date_id × time_id × symbol_id)` panel, not a flat table:"
+    )
+    L.append("")
+    L.append(
+        "- **`weight` is constant within each `(date_id, symbol_id)`** — every "
+        "intraday `time_id` of a given symbol-day carries the same weight "
+        "(verified: `n_unique(weight) == 1` per symbol on date 0). Weight is a "
+        "per-symbol-per-day scalar broadcast across the day."
+    )
+    L.append(
+        "- **The symbol universe grows over time**: ~8 symbols on `date_id=0`, "
+        "13 by day 100, 28 by day 500, 35 by day 1000, 39 by day 1698. "
+        "Instruments are phased in, so early dates cover far fewer symbols."
+    )
+    L.append(
+        "- **`time_id` is not a fixed grid**: the number of intraday buckets "
+        "varies by day (≈849 on date 0 vs 968 on date 1698)."
+    )
+    L.append(
+        "- **Features have a warm-up period**: on `date_id=0` only 44/79 "
+        "features are populated; several (`feature_00..04`, `21`, `26`, `27`, "
+        "`31`) are 100% null early and only appear once enough history exists."
+    )
+    L.append("")
 
     # 3. test.parquet ------------------------------------------------------- #
     L.append("## 3. test.parquet audit")
@@ -495,6 +521,16 @@ def render_docs(results: dict[str, Any]) -> str:
         "no `responder_6`). It exists for API/inference compatibility, **not** "
         "local model evaluation. Because there is no label, no R² / weighted-R² "
         "can be computed against it locally."
+    )
+    L.append("")
+    L.append(
+        "**The mock is hollow (real Kaggle data).** Beyond the missing label, "
+        "the packaged `test.parquet` carries **no real feature values**: all 79 "
+        "feature columns are `0.0` / `-0.0` (0/79 have any non-zero value; "
+        "64/79 are non-null but literally zero). Only `weight` is populated and "
+        "`is_scored` is `false` for all 39 rows (one row per symbol at "
+        "`date_id=0`, `time_id=0`). So it is purely a schema/format example for "
+        "the inference gateway and carries no modelling signal whatsoever."
     )
     L.append("")
 
@@ -547,6 +583,16 @@ def render_docs(results: dict[str, Any]) -> str:
         "forward (responders of D-1 become features for D). This must avoid "
         "using current- or future-date responders, or it leaks the target. "
         "(V0 raw LGBM does not use lags at all.)"
+    )
+    L.append("")
+    L.append(
+        "**The packaged lags are illustrative (real Kaggle data).** Unlike the "
+        "hollow `test.parquet`, the lag *values* here are real numbers, but they "
+        "do **not** correspond to this `train.parquet`: the mock covers all 39 "
+        "symbols at `date_id=0` whereas train's `date_id=0` only has ~8 symbols, "
+        "and the lag values do not match train's date-0 responders. Treat the "
+        "shipped `lags.parquet` as a synthetic format example; reconstruct real "
+        "lags from train as described above."
     )
     L.append("")
 
@@ -694,6 +740,13 @@ def render_docs(results: dict[str, Any]) -> str:
     L.append(
         "- Lag features require careful leakage control: only D-1 (and earlier) "
         "responders may inform date D."
+    )
+    L.append(
+        "- The panel structure (section 2) shapes the split design: the symbol "
+        "universe grows over time (≈8→39), early dates have a feature warm-up "
+        "with many nulls, and `weight` is a per-`(date_id, symbol_id)` scalar — "
+        "so recent-window validation is cleaner than full history, and weighted "
+        "metrics should respect the per-symbol-day weighting."
     )
     L.append("- The next stage should define a **split-protocol registry**:")
     L.append("  - A. `recent700_v200_g0` — recent 700 days, 200-day valid, gap 0")
