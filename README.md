@@ -197,18 +197,24 @@ are recorded in
 
 ### Incremental vs full (walk-forward)
 
-Compare a statically-trained LightGBM (**full**) against the same model updated
-**incrementally** as it walks a *fixed* trailing test block (the last `test_days`
-date_ids, default 200). "Incremental" here is a LightGBM leaf-value refit
-(`Booster.refit`) applied once per test day — the leakage-clean analog of the
-"with vs without online learning" comparison in
+Compare a statically-trained LightGBM (**full**) against three **incremental**
+update strategies as the model walks a *fixed* trailing test block (the last
+`test_days` date_ids, default 200):
+
+- **refit** — daily `Booster.refit` of leaf values on each revealed day;
+- **continue** — daily continued boosting (add `continue_rounds` trees);
+- **retrain** — expanding retrain from scratch on all data so far (coarse cadence).
+
+This is the leakage-clean LightGBM analog of the "with vs without online learning"
+comparison in
 [`evgeniavolkova/kagglejanestreet`](https://github.com/evgeniavolkova/kagglejanestreet).
-Both modes share one initial fit and are scored on the *same* test block, so the
-numbers are directly comparable.
+All variants share one training region and are scored on the *same* test block, so
+the numbers are directly comparable.
 
 ```bash
 uv run js2024-run-incremental-vs-full \
   --config configs/lgbm_v0_incremental.yaml \
+  --methods refit,continue,retrain \
   --out-dir outputs/incremental_vs_full/lgbm_v0 \
   --docs-out docs/experiments/lgbm_v0_incremental_vs_full.md
 ```
@@ -217,8 +223,9 @@ The early-stopping holdout is carved from the **train tail**, never the test blo
 so the "full" number is leakage-clean (and may differ slightly from the recent700
 baseline, which uses the last-200 block as its `eval_set`). The engine is
 model-agnostic (`Estimator` protocol: `fit` / `update` / `predict`) so a future GRU
-can slot in behind the same API. Useful flags: `--dry-run`, `--test-days`,
-`--update-cadence`, `--n-estimators`. Results are recorded in
+can slot in behind the same API. Useful flags: `--methods`, `--dry-run`,
+`--test-days`, `--cadence` / `--retrain-cadence`, `--n-estimators`. Results are
+recorded in
 [`docs/experiments/lgbm_v0_incremental_vs_full.md`](docs/experiments/lgbm_v0_incremental_vs_full.md).
 
 ## Tests

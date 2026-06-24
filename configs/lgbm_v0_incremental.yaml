@@ -18,10 +18,15 @@ test_days: 200
 valid_days: 200
 gap_days: 0
 
-# Incremental update: LightGBM leaf-value refit, once per test date_id.
+# Incremental update params. The runner compares `full` plus the methods chosen
+# via `--methods` (default refit,continue,retrain); these fields tune them.
+# - refit:    Booster.refit leaf values, blended by refit_decay.
+# - continue: continued boosting, adding continue_rounds trees per update.
+# - retrain:  expanding retrain from scratch (coarse cadence; see --retrain-cadence).
 update_method: refit
 update_cadence: 1
 refit_decay: 0.9
+continue_rounds: 10
 
 # Model hyperparameters.
 random_state: 42

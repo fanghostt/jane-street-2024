@@ -61,6 +61,7 @@ class LGBMConfig:
     update_method: str = "refit"
     update_cadence: int = 1
     refit_decay: float = 0.9
+    continue_rounds: int = 10
 
 
 def validate_lgbm_config(config: LGBMConfig) -> LGBMConfig:
@@ -93,12 +94,15 @@ def validate_lgbm_config(config: LGBMConfig) -> LGBMConfig:
         errors.append(f"test_days must be > 0, got {config.test_days}")
     if config.update_cadence < 1:
         errors.append(f"update_cadence must be >= 1, got {config.update_cadence}")
-    if config.update_method not in {"refit"}:
+    if config.update_method not in {"refit", "continue", "retrain"}:
         errors.append(
-            f"update_method must be one of {{'refit'}}, got {config.update_method!r}"
+            "update_method must be one of {'refit', 'continue', 'retrain'}, got "
+            f"{config.update_method!r}"
         )
     if not (0 <= config.refit_decay <= 1):
         errors.append(f"refit_decay must be in [0, 1], got {config.refit_decay}")
+    if config.continue_rounds <= 0:
+        errors.append(f"continue_rounds must be > 0, got {config.continue_rounds}")
     if errors:
         raise ValueError("Invalid LGBM config:\n- " + "\n- ".join(errors))
     return config
@@ -126,5 +130,6 @@ def load_lgbm_config(path: str | Path) -> LGBMConfig:
         update_method=str(raw.get("update_method", "refit")),
         update_cadence=int(raw.get("update_cadence", 1)),
         refit_decay=float(raw.get("refit_decay", 0.9)),
+        continue_rounds=int(raw.get("continue_rounds", 10)),
     )
     return validate_lgbm_config(config)

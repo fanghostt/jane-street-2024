@@ -63,7 +63,7 @@ def test_dry_run(tmp_path, capsys):
     assert "Dry run" in out
 
 
-def test_cli_runs_both_modes_and_writes_doc(tmp_path):
+def test_cli_runs_all_variants_and_writes_doc(tmp_path):
     train = tmp_path / "train.parquet"
     _write_fake_train(train)
     cfg = tmp_path / "cfg.yaml"
@@ -73,23 +73,39 @@ def test_cli_runs_both_modes_and_writes_doc(tmp_path):
 
     rc = main(
         [
-            "--config",
-            str(cfg),
-            "--out-dir",
-            str(out_dir),
-            "--docs-out",
-            str(docs),
+            "--config", str(cfg),
+            "--methods", "refit,continue,retrain",
+            "--retrain-cadence", "2",  # exercise retrain on the 4-day test block
+            "--out-dir", str(out_dir),
+            "--docs-out", str(docs),
         ]
     )
     assert rc == 0
 
     text = docs.read_text(encoding="utf-8")
-    assert "incremental" in text and "full" in text
+    for label in ("full", "refit", "continue", "retrain"):
+        assert label in text
     assert "fixed test block" in text
 
     summary = pl.read_csv(out_dir / "summary.csv")
-    assert set(summary.get_column("mode").to_list()) == {"full", "incremental"}
-    # full does no updates; incremental updates (test_days-1) times daily.
-    by_mode = {r["mode"]: r for r in summary.to_dicts()}
-    assert by_mode["full"]["n_updates"] == 0
-    assert by_mode["incremental"]["n_updates"] == 3  # 4 test days, daily -> 3
+    by = {r["variant"]: r for r in summary.to_dicts()}
+    assert set(by) == {"full", "refit", "continue", "retrain"}
+    assert by["full"]["n_updates"] == 0
+    assert by["refit"]["n_updates"] == 3  # 4 test days, daily -> 3
+    assert by["continue"]["n_updates"] == 3
+    assert by["retrain"]["n_updates"] == 1  # cadence 2 over 4 days -> 1
+
+
+def test_cli_subset_of_methods(tmp_path):
+    train = tmp_path / "train.parquet"
+    _write_fake_train(train)
+    cfg = tmp_path / "cfg.yaml"
+    _write_config(cfg, train)
+    out_dir = tmp_path / "out"
+    rc = main(
+        ["--config", str(cfg), "--methods", "refit", "--out-dir", str(out_dir),
+         "--docs-out", str(tmp_path / "d.md")]
+    )
+    assert rc == 0
+    summary = pl.read_csv(out_dir / "summary.csv")
+    assert set(summary.get_column("variant").to_list()) == {"full", "refit"}
