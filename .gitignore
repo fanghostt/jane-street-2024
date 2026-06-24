@@ -14,6 +14,7 @@ outputs/oof/*
 outputs/submissions/*
 outputs/reports/*
 outputs/split_experiments/
+outputs/data_semantics_audit/
 
 # Keep the directory structure
 !.gitkeep
