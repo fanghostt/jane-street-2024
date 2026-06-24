@@ -142,6 +142,7 @@ Verified with the Kaggle CLI on 2026-06-24 (`kaggle competitions list -s jane-st
 - The competition's *final submission deadline* for the initial phase was **Jan 13, 2025**; the forecasting phase then scored submitted models against live market data until ~mid-2025 (deadline 2025-07-12). The leaderboard's last scored submissions are dated 2025-06-16.
 - Audit date: **2026-06-24** — well past the deadline.
 - The configured account *has entered* the competition (`userHasEntered=True`) but has **0 submissions** (`No submissions found`).
+- **Empirical probe:** a CLI submit (`kaggle competitions submit -c jane-street-real-time-market-data-forecasting -f sample_submission.csv`) was attempted and the server **rejected it with `400 Bad Request` on `CreateSubmission`**; `submissions` still shows `No submissions found` afterwards. This is also a *code* competition (notebook-only submission), so a CSV file submit could not create a scored entry regardless. Submission is empirically closed.
 
 **Answers:**
 

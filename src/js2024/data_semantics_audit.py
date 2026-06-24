@@ -656,6 +656,16 @@ def render_docs(results: dict[str, Any]) -> str:
         "(`userHasEntered=True`) but has **0 submissions** "
         "(`No submissions found`)."
     )
+    L.append(
+        "- **Empirical probe:** a CLI submit "
+        "(`kaggle competitions submit -c "
+        "jane-street-real-time-market-data-forecasting -f "
+        "sample_submission.csv`) was attempted and the server **rejected it "
+        "with `400 Bad Request` on `CreateSubmission`**; `submissions` still "
+        "shows `No submissions found` afterwards. This is also a *code* "
+        "competition (notebook-only submission), so a CSV file submit could "
+        "not create a scored entry regardless. Submission is empirically closed."
+    )
     L.append("")
     L.append("**Answers:**")
     L.append("")
