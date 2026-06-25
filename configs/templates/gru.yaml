@@ -28,6 +28,15 @@ random_state: 42
 device: auto          # "auto" uses CUDA when available, else CPU; or "cpu"/"cuda".
 include_time: true    # add `time_id` as a model input.
 
+# Sequence backbone. The day-batch + auxiliary-head protocol below is shared; only
+# the per-step backbone changes. `model: gru` honours `model_type` (gru|lstm);
+# the transformer/tcn backbones are selected via their own specs instead — see
+# configs/transformer_v0.yaml (causal attention, `num_heads`) and
+# configs/tcn_v0.yaml (causal dilated conv, `kernel_size`).
+model_type: gru       # gru | lstm (within the `gru` spec).
+# num_heads: 5        # transformer only; each hidden_size must divide evenly.
+# kernel_size: 3      # tcn only; causal conv kernel width.
+
 # GRU + linear-head sizes. dropout_rates length must match hidden_sizes, and
 # dropout_rates_linear must match hidden_sizes_linear.
 hidden_sizes: [500]

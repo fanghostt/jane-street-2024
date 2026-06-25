@@ -91,13 +91,118 @@ def _day_tensor(
     return x, aux, y, w
 
 
-class _GRUBase:
-    pass
+SEQ_MODEL_TYPES = ("gru", "lstm", "transformer", "tcn")
+
+
+def _make_backbone_layer(model_type: str, input_dim: int, hidden: int, layer_idx: int, params):
+    """Build one sequence-backbone layer mapping ``(B, T, input_dim) -> (B, T, hidden)``.
+
+    Every layer exposes the same ``forward(x, h) -> (out, h)`` contract the day-batch
+    loop expects; non-recurrent backbones return ``h=None``. All backbones are
+    strictly causal over the time axis so a step never sees future ``time_id``s.
+    """
+    import torch.nn as nn
+
+    if model_type in ("gru", "lstm"):
+        rnn_cls = nn.GRU if model_type == "gru" else nn.LSTM
+        return _RNNLayer(rnn_cls(input_dim, hidden, num_layers=1, batch_first=True))
+    if model_type == "transformer":
+        return _TransformerLayer(input_dim, hidden, int(params.get("num_heads", 5)))
+    if model_type == "tcn":
+        return _TCNLayer(input_dim, hidden, int(params.get("kernel_size", 3)), dilation=2 ** layer_idx)
+    raise ValueError(f"Unknown model_type {model_type!r}; expected one of {SEQ_MODEL_TYPES}")
+
+
+def _seq_layer_classes():
+    """Define backbone layer modules lazily (so importing gru.py needs no torch)."""
+    import math
+
+    import torch
+    import torch.nn as nn
+
+    class RNNLayer(nn.Module):
+        def __init__(self, rnn: nn.Module) -> None:
+            super().__init__()
+            self.rnn = rnn
+
+        def forward(self, x, h=None):
+            return self.rnn(x, h)
+
+    class TransformerLayer(nn.Module):
+        """Causal self-attention block: project -> sinusoidal PE -> masked encoder."""
+
+        def __init__(self, input_dim: int, hidden: int, num_heads: int) -> None:
+            super().__init__()
+            if hidden % num_heads != 0:
+                raise ValueError(
+                    f"transformer hidden={hidden} must be divisible by num_heads={num_heads}"
+                )
+            self.proj = nn.Linear(input_dim, hidden)
+            self.encoder = nn.TransformerEncoderLayer(
+                d_model=hidden,
+                nhead=num_heads,
+                dim_feedforward=hidden * 2,
+                dropout=0.0,
+                batch_first=True,
+            )
+
+        def _positional_encoding(self, t: int, dim: int, device, dtype):
+            pos = torch.arange(t, device=device, dtype=dtype).unsqueeze(1)
+            div = torch.exp(
+                torch.arange(0, dim, 2, device=device, dtype=dtype)
+                * (-math.log(10000.0) / dim)
+            )
+            pe = torch.zeros(t, dim, device=device, dtype=dtype)
+            pe[:, 0::2] = torch.sin(pos * div)
+            pe[:, 1::2] = torch.cos(pos * div[: pe[:, 1::2].shape[1]])
+            return pe.unsqueeze(0)
+
+        def forward(self, x, h=None):
+            z = self.proj(x)
+            t = z.shape[1]
+            z = z + self._positional_encoding(t, z.shape[-1], z.device, z.dtype)
+            mask = torch.triu(
+                torch.full((t, t), float("-inf"), device=z.device, dtype=z.dtype),
+                diagonal=1,
+            )
+            return self.encoder(z, src_mask=mask), None
+
+    class TCNLayer(nn.Module):
+        """Causal dilated 1-D conv block with a residual projection."""
+
+        def __init__(self, input_dim: int, hidden: int, kernel_size: int, dilation: int) -> None:
+            super().__init__()
+            self.pad = (kernel_size - 1) * dilation
+            self.conv = nn.Conv1d(
+                input_dim, hidden, kernel_size, padding=self.pad, dilation=dilation
+            )
+            self.act = nn.ReLU()
+            self.res = nn.Linear(input_dim, hidden) if input_dim != hidden else None
+
+        def forward(self, x, h=None):
+            z = self.conv(x.transpose(1, 2))
+            if self.pad:
+                z = z[:, :, : -self.pad]  # chomp right padding to stay causal
+            z = self.act(z).transpose(1, 2)
+            res = x if self.res is None else self.res(x)
+            return z + res, None
+
+    return RNNLayer, TransformerLayer, TCNLayer
+
+
+_RNNLayer = _TransformerLayer = _TCNLayer = None
+
+
+def _ensure_layer_classes() -> None:
+    global _RNNLayer, _TransformerLayer, _TCNLayer
+    if _RNNLayer is None:
+        _RNNLayer, _TransformerLayer, _TCNLayer = _seq_layer_classes()
 
 
 def _build_model(n_features: int, params: dict[str, Any]):
     import torch.nn as nn
 
+    _ensure_layer_classes()
     hidden_sizes = list(params["hidden_sizes"])
     dropout_rates = list(params["dropout_rates"])
     hidden_linear = list(params["hidden_sizes_linear"])
@@ -111,13 +216,9 @@ def _build_model(n_features: int, params: dict[str, Any]):
             self.dropouts = nn.ModuleList()
             for i, hidden in enumerate(hidden_sizes):
                 input_dim = n_features if i == 0 else hidden_sizes[i - 1]
-                if model_type == "gru":
-                    layer = nn.GRU(input_dim, hidden, num_layers=1, batch_first=True)
-                elif model_type == "lstm":
-                    layer = nn.LSTM(input_dim, hidden, num_layers=1, batch_first=True)
-                else:
-                    raise ValueError(f"Unknown model_type {model_type!r}")
-                self.rnns.append(layer)
+                self.rnns.append(
+                    _make_backbone_layer(model_type, input_dim, hidden, i, params)
+                )
                 self.dropouts.append(nn.Dropout(float(dropout_rates[i])))
 
             in_dim = hidden_sizes[-1] if hidden_sizes else n_features
@@ -167,6 +268,8 @@ def _build_model(n_features: int, params: dict[str, Any]):
 
 GRU_DEFAULT_PARAMS: dict[str, Any] = {
     "model_type": "gru",
+    "num_heads": 5,        # transformer: attention heads (hidden must divide evenly)
+    "kernel_size": 3,      # tcn: causal conv kernel width
     "hidden_sizes": [500],
     "dropout_rates": [0.3],
     "hidden_sizes_linear": [500, 300],
@@ -334,7 +437,7 @@ class GRUEstimator:
             else:
                 score = -float(np.mean(losses))
             print(
-                f"[js2024] gru epoch={epoch} "
+                f"[js2024] {self.params['model_type']} epoch={epoch} "
                 f"loss={np.mean(losses):.6f} valid_R2={score:.6f}"
             )
             if score > best_score:

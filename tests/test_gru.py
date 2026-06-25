@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
+import pytest
 
 from js2024.modeling.gru import (
     add_gru_aux_targets,
@@ -55,11 +56,11 @@ def _write_fake_train(path, n_days=7, n_times=3, n_symbols=2, seed=0):
     pl.DataFrame(rows).write_parquet(path)
 
 
-def _write_config(path, train_path):
+def _write_config(path, train_path, *, model="gru", extra=()):
     path.write_text(
         "\n".join(
             [
-                "model: gru",
+                f"model: {model}",
                 "variants: [full, incremental]",
                 f"train_path: {train_path}",
                 "start_date_id: 0",
@@ -81,22 +82,31 @@ def _write_config(path, train_path):
                 "early_stopping_patience: 1",
                 "weight_decay: 0.0",
                 "grad_clip: 1.0",
+                *extra,
             ]
         ),
         encoding="utf-8",
     )
 
 
-def test_gru_runs_via_generic_runner(tmp_path):
+@pytest.mark.parametrize(
+    "model, extra",
+    [
+        ("gru", ()),
+        ("transformer", ("num_heads: 2",)),  # hidden_size 4 must divide num_heads
+        ("tcn", ("kernel_size: 2",)),
+    ],
+)
+def test_seq_backbones_run_via_generic_runner(tmp_path, model, extra):
     train = tmp_path / "train.parquet"
     _write_fake_train(train)
     cfg = tmp_path / "cfg.yaml"
-    _write_config(cfg, train)
+    _write_config(cfg, train, model=model, extra=extra)
     out = tmp_path / "out"
 
     rc = main(["--config", str(cfg), "--variants", "full", "--out-dir", str(out)])
 
     assert rc == 0
     summary = pl.read_csv(out / "summary.csv")
-    assert summary.get_column("variant").to_list() == ["gru_full"]
+    assert summary.get_column("variant").to_list() == [f"{model}_full"]
     assert (out / "manifest.json").exists()

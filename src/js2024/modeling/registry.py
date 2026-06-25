@@ -85,15 +85,29 @@ def _gru_features(config: GRUConfig) -> list[str]:
     return get_gru_feature_columns(include_time=config.include_time)
 
 
-def _make_gru(config: GRUConfig, feature_cols: list[str]) -> GRUEstimator:
+def _make_seq(
+    config: GRUConfig, feature_cols: list[str], *, model_type: str | None = None
+) -> GRUEstimator:
+    """Build a day-batch sequence estimator, optionally forcing the backbone.
+
+    ``model_type=None`` honours ``config.model_type`` (gru spec, where lstm is also
+    reachable); the transformer/tcn specs pass an explicit backbone that wins.
+    """
+    params = gru_params(config)
+    if model_type is not None:
+        params["model_type"] = model_type
     return GRUEstimator(
         feature_cols=feature_cols,
         target_col=TARGET_COLUMN,
         weight_col=WEIGHT_COLUMN,
-        params=gru_params(config),
+        params=params,
         random_state=config.random_state,
         device=config.device,
     )
+
+
+def _make_gru(config: GRUConfig, feature_cols: list[str]) -> GRUEstimator:
+    return _make_seq(config, feature_cols)
 
 
 def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
@@ -125,13 +139,33 @@ def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
     return add_gru_aux_targets(df)
 
 
-def _gru_describe(config: GRUConfig) -> list[str]:
+def _make_transformer(config: GRUConfig, feature_cols: list[str]) -> GRUEstimator:
+    return _make_seq(config, feature_cols, model_type="transformer")
+
+
+def _make_tcn(config: GRUConfig, feature_cols: list[str]) -> GRUEstimator:
+    return _make_seq(config, feature_cols, model_type="tcn")
+
+
+def _seq_describe(config: GRUConfig, backbone: str, extra: str) -> list[str]:
     return [
-        f"GRU (day-batch): `hidden_sizes={config.hidden_sizes}`, "
+        f"{backbone} (day-batch): `hidden_sizes={config.hidden_sizes}`, "
         f"`epochs={config.epochs}`, `lr={config.lr}`, `lr_refit={config.lr_refit}`, "
-        f"cadence={config.update_cadence}.",
-        "day-batch GRU with auxiliary responder heads (public-solution style).",
+        f"cadence={config.update_cadence}{extra}.",
+        f"day-batch {backbone} with auxiliary responder heads (public-solution style).",
     ]
+
+
+def _gru_describe(config: GRUConfig) -> list[str]:
+    return _seq_describe(config, config.model_type.upper(), "")
+
+
+def _transformer_describe(config: GRUConfig) -> list[str]:
+    return _seq_describe(config, "Transformer", f", `num_heads={config.num_heads}`")
+
+
+def _tcn_describe(config: GRUConfig) -> list[str]:
+    return _seq_describe(config, "TCN", f", `kernel_size={config.kernel_size}`")
 
 
 # --- LightGBM (static / online reference) ---------------------------------
@@ -205,6 +239,24 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         make_estimator=_make_gru,
         load_frame=_load_gru_frame,
         describe=_gru_describe,
+    ),
+    "transformer": ModelSpec(
+        name="transformer",
+        title="Transformer (day-batch)",
+        load_config=load_gru_config,
+        feature_columns=_gru_features,
+        make_estimator=_make_transformer,
+        load_frame=_load_gru_frame,
+        describe=_transformer_describe,
+    ),
+    "tcn": ModelSpec(
+        name="tcn",
+        title="TCN (day-batch)",
+        load_config=load_gru_config,
+        feature_columns=_gru_features,
+        make_estimator=_make_tcn,
+        load_frame=_load_gru_frame,
+        describe=_tcn_describe,
     ),
     "lgbm": ModelSpec(
         name="lgbm",

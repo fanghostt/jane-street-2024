@@ -187,6 +187,11 @@ class GRUConfig:
     update_cadence: int = 1
     include_time: bool = True
     device: str = "auto"
+    # Sequence backbone: gru/lstm (recurrent), transformer (causal attention),
+    # tcn (causal dilated conv). All share the day-batch + aux-head protocol.
+    model_type: str = "gru"
+    num_heads: int = 5      # transformer only; each hidden_size must divide evenly.
+    kernel_size: int = 3    # tcn only; causal conv kernel width.
     hidden_sizes: list[int] | None = None
     dropout_rates: list[float] | None = None
     hidden_sizes_linear: list[int] | None = None
@@ -244,6 +249,22 @@ def validate_gru_config(config: GRUConfig) -> GRUConfig:
         errors.append(f"weight_decay must be >= 0, got {config.weight_decay}")
     if config.grad_clip <= 0:
         errors.append(f"grad_clip must be > 0, got {config.grad_clip}")
+    seq_types = {"gru", "lstm", "transformer", "tcn"}
+    if config.model_type not in seq_types:
+        errors.append(
+            f"model_type must be one of {sorted(seq_types)}, got {config.model_type!r}"
+        )
+    if config.num_heads <= 0:
+        errors.append(f"num_heads must be > 0, got {config.num_heads}")
+    if config.model_type == "transformer":
+        bad = [h for h in hidden_sizes if h % config.num_heads != 0]
+        if bad:
+            errors.append(
+                f"transformer requires each hidden_size divisible by num_heads="
+                f"{config.num_heads}; offending sizes: {bad}"
+            )
+    if config.kernel_size <= 0:
+        errors.append(f"kernel_size must be > 0, got {config.kernel_size}")
     if errors:
         raise ValueError("Invalid GRU config:\n- " + "\n- ".join(errors))
     return config
@@ -252,6 +273,9 @@ def validate_gru_config(config: GRUConfig) -> GRUConfig:
 def gru_params(config: GRUConfig) -> dict[str, Any]:
     """Extract estimator params from :class:`GRUConfig`."""
     return {
+        "model_type": config.model_type,
+        "num_heads": config.num_heads,
+        "kernel_size": config.kernel_size,
         "hidden_sizes": list(config.hidden_sizes or [500]),
         "dropout_rates": list(config.dropout_rates or [0.3]),
         "hidden_sizes_linear": list(config.hidden_sizes_linear or [500, 300]),
@@ -279,6 +303,9 @@ def load_gru_config(path: str | Path) -> GRUConfig:
         update_cadence=int(raw.get("update_cadence", 1)),
         include_time=bool(raw.get("include_time", True)),
         device=str(raw.get("device", "auto")),
+        model_type=str(raw.get("model_type", "gru")),
+        num_heads=int(raw.get("num_heads", 5)),
+        kernel_size=int(raw.get("kernel_size", 3)),
         hidden_sizes=list(raw.get("hidden_sizes", [500])),
         dropout_rates=list(raw.get("dropout_rates", [0.3])),
         hidden_sizes_linear=list(raw.get("hidden_sizes_linear", [500, 300])),

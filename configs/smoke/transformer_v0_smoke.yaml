@@ -1,0 +1,29 @@
+# Tiny smoke config for the day-batch Transformer via js2024-run-experiment.
+model: transformer
+variants: [full, incremental]
+
+train_path: data/interim/train_smoke.parquet
+
+start_date_id: null
+end_date_id: null
+
+test_days: 2
+valid_days: 2
+gap_days: 0
+update_cadence: 1
+
+random_state: 42
+device: auto
+include_time: true
+
+hidden_sizes: [16]
+dropout_rates: [0.0]
+num_heads: 4
+hidden_sizes_linear: [16]
+dropout_rates_linear: [0.0]
+lr: 0.001
+lr_refit: 0.0005
+epochs: 2
+early_stopping_patience: 1
+weight_decay: 0.0
+grad_clip: 1.0

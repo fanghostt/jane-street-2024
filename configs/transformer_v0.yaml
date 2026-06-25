@@ -1,0 +1,32 @@
+# Transformer (day-batch) walk-forward run. Same day-batch + auxiliary-head
+# protocol as the GRU, with a causal self-attention backbone instead of the RNN.
+# See configs/templates/gru.yaml for the documented shared keys.
+model: transformer
+variants: [full, incremental]
+
+train_path: data/raw/train.parquet
+
+start_date_id: 700
+end_date_id: null
+
+test_days: 200
+valid_days: 200
+gap_days: 0
+update_cadence: 1
+
+random_state: 42
+device: auto
+include_time: true
+
+# Each hidden_size is the attention model dim and must be divisible by num_heads.
+hidden_sizes: [500]
+dropout_rates: [0.3]
+num_heads: 5
+hidden_sizes_linear: [500, 300]
+dropout_rates_linear: [0.2, 0.1]
+lr: 0.0005
+lr_refit: 0.0003
+epochs: 1000
+early_stopping_patience: 1
+weight_decay: 0.01
+grad_clip: 1.0
