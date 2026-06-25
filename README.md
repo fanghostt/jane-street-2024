@@ -96,6 +96,30 @@ Writes a markdown profile (row count, date range, symbol/time cardinality,
 target & weight distributions, top-30 features by missing ratio). All stats are
 computed lazily; restrict the date range if a full scan is too slow.
 
+### 6. Data semantics audit
+
+```bash
+uv run js2024-data-semantics-audit \
+  --raw-dir data/raw \
+  --out-dir outputs/data_semantics_audit \
+  --docs-out docs/data/data_semantics_audit.md
+```
+
+Read-only audit that clarifies the semantics of `train` / `test` / `lags` /
+`features` / `responders`. Key points it documents:
+
+- `test.parquet` is a mock of the evaluation API input and has **no**
+  `responder_6` label — it is **not** a local validation set.
+- Local validation must come from time splits of `train.parquet` (the only file
+  with labels).
+- `lags.parquet` holds `responder_0..8` lagged by one `date_id`, served at the
+  first `time_id` of the succeeding date.
+- `features.csv` / `responders.csv` are anonymized metadata (boolean tags), not
+  label values.
+
+The committed artifact is the markdown doc; the per-file CSV/JSON dumps under
+`outputs/data_semantics_audit/` are git-ignored.
+
 ## Install
 
 This project is managed with [uv](https://docs.astral.sh/uv/). From the project
