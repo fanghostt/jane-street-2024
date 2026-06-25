@@ -257,21 +257,21 @@ in [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §3–4.
 
 ### GRU walk-forward (sequence model)
 
-`GRUEstimator` is a GRU over per-`symbol_id` lookback windows that satisfies the
-same `Estimator` protocol, so it is driven by the **same** `walk_forward_evaluate`
-engine and fixed-test-block protocol as LightGBM — its weighted zero-mean R² is
-directly comparable. Each row's prediction comes from a length-`seq_len` window of
-that symbol's `(date_id, time_id)`-ordered feature vectors (standardized, NaN→mean);
-`symbol_id` is encoded via the per-symbol sequencing rather than as a raw input. A
-per-symbol context buffer is advanced in `predict` using **features only** (no
-labels), so it is leakage-clean. `gru_incremental` runs a few fine-tuning gradient
-steps on each revealed chunk — the neural analog of online learning.
+`GRUEstimator` (registry key `gru`) is a **day-batch** GRU closer to
+`evgeniavolkova/kagglejanestreet`: one `date_id` is one batch, rows are reshaped
+into `symbols × time_id × features`, and four auxiliary responder heads are trained
+jointly with the final target. It satisfies the same `Estimator` protocol, so it is
+driven by the **same** `walk_forward_evaluate` engine and fixed-test-block protocol
+as LightGBM — its weighted zero-mean R² is directly comparable. The sequence axis is
+the `time_id` order *within* a day (hidden state does not carry across `date_id`s).
+`gru_incremental` fine-tunes day-by-day at a smaller refit LR — the neural analog of
+online learning.
 
 All walk-forward models run through one **config-driven** entrypoint,
 `js2024-run-experiment`. The YAML's `model:` key selects a spec from the model
-registry (`src/js2024/modeling/registry.py` — currently `gru`,
-`gru_evgeniavolkova`, `lgbm`) and `variants:` (`full`, `incremental`) selects
-which walk-forward variants to evaluate; there is no per-model runner script.
+registry (`src/js2024/modeling/registry.py` — currently `gru`, `lgbm`) and
+`variants:` (`full`, `incremental`) selects which walk-forward variants to
+evaluate; there is no per-model runner script.
 
 ```bash
 uv run js2024-run-experiment --config configs/gru_v0.yaml
