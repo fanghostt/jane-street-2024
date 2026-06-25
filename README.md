@@ -339,7 +339,6 @@ Console scripts (defined in `pyproject.toml`) are unchanged by the layout — e.
 
 ## Explicitly not implemented yet
 
-- Auxiliary targets
 - Ensembling
 - Kaggle inference gateway / submission packaging
 - Full `evgeniavolkova/kagglejanestreet` parity
