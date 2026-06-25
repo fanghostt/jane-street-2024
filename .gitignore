@@ -8,13 +8,12 @@ kaggle.json
 **/kaggle.json
 *.zip
 
-# Model & output artifacts
+# Run & experiment artifacts (gitignored; recreated on run).
+# - outputs/ : standard pipeline single-run artifacts (oof, reports, submissions)
+# - experiments/ : experiment runs (split sweeps, incremental-vs-full, cadence sweeps)
 models/*
-outputs/oof/*
-outputs/submissions/*
-outputs/reports/*
-outputs/split_experiments/
-outputs/incremental_vs_full/
+outputs/*
+/experiments/
 
 # Keep the directory structure
 !.gitkeep

@@ -29,8 +29,8 @@ Usage
     uv run js2024-run-incremental-vs-full \\
         --config configs/lgbm_v0_incremental.yaml \\
         --methods refit,continue,retrain \\
-        --out-dir outputs/incremental_vs_full/lgbm_v0 \\
-        --docs-out docs/experiments/lgbm_v0_incremental_vs_full.md
+        --out-dir experiments/incremental_vs_full/lgbm_v0 \\
+        --docs-out experiments/incremental_vs_full/lgbm_v0/report.md
 """
 
 from __future__ import annotations
@@ -91,10 +91,13 @@ def run_suite(
     df: pl.DataFrame,
     *,
     feature_cols: list[str],
-    methods: list[str],
-    cadences: dict[str, int],
+    specs: list[tuple[str, str, int]],
 ) -> dict[str, Any]:
-    """Fit + walk-forward evaluate ``full`` plus each method on a shared frame."""
+    """Fit + walk-forward evaluate ``full`` plus each spec on a shared frame.
+
+    ``specs`` is a list of ``(label, method, cadence)`` — letting the caller run
+    distinct labels (e.g. a retrain cadence sweep ``retrain_c25``/``retrain_c50``).
+    """
     min_date, max_date = get_date_id_range(df)
 
     # Fixed trailing test block of `test_days`; train region is everything before it.
@@ -131,28 +134,30 @@ def run_suite(
     )
     print(f"[js2024] full: R²={results['full'].score:.6f}")
 
-    for method in methods:
-        cadence = cadences[method]
-        print(f"\n[js2024] === {method} (cadence={cadence}) ===")
+    method_of: dict[str, str] = {"full": "full"}
+    for label, method, cadence in specs:
+        print(f"\n[js2024] === {label} ({method}, cadence={cadence}) ===")
         est = _make_estimator(config, feature_cols, method)
         est.fit(train_df, es_valid_df)
         res = walk_forward_evaluate(
             est, df, test_start, test_end, mode="incremental", update_cadence=cadence,
             target_col=TARGET_COLUMN, weight_col=WEIGHT_COLUMN,
         )
-        print(f"[js2024] {method}: R²={res.score:.6f} (updates={res.n_updates})")
-        results[method] = res
-        cadence_used[method] = cadence
+        print(f"[js2024] {label}: R²={res.score:.6f} (updates={res.n_updates})")
+        results[label] = res
+        cadence_used[label] = cadence
+        method_of[label] = method
 
     return {
         "results": results,
         "cadence_used": cadence_used,
+        "method_of": method_of,
         "train_lo": train_lo,
         "train_hi": train_hi,
         "es_split": summarize_date_split(df, es_split),
         "test_start": test_start,
         "test_end": test_end,
-        "labels": ["full", *methods],
+        "labels": ["full", *[s[0] for s in specs]],
     }
 
 
@@ -239,53 +244,56 @@ def render_docs(bundle: dict[str, Any], config: LGBMConfig, status: str) -> str:
     best = max(labels, key=lambda lb: bundle["results"][lb].score)
     L.append(f"- **best variant:** `{best}` (R²={bundle['results'][best].score:.6f}).")
     L.append("")
+    method_of = bundle["method_of"]
+    labels_for = lambda m: [lb for lb in labels if method_of.get(lb) == m]
+
     L.append("## Interpretation")
     L.append("")
     L.append(
-        "- The **full** number here is leakage-clean (early stopping uses a train-tail "
-        "holdout, not the test block), so it may differ slightly from the recent700 "
-        "baseline R²=0.010469, which used the last-200 block as its eval_set."
+        "- **full** is leakage-clean (early stopping uses a train-tail holdout, not the "
+        "test block), so it may sit slightly below the recent700 baseline R²=0.010469, "
+        "which used the last-200 block as its eval_set."
     )
-    if bundle["results"].get("refit") and bundle["results"]["refit"].score < full.score:
-        L.append(
-            "- **refit** degrades: each daily leaf-refit re-weights *all* leaves toward "
-            "one noisy day; 199 cumulative refits drag the fit off. `Booster.refit` is "
-            "the wrong online analog for a tree model."
-        )
-    if bundle["results"].get("continue"):
-        cs = bundle["results"]["continue"].score
+    for lb in labels_for("refit"):
+        if bundle["results"][lb].score < full.score:
+            L.append(
+                f"- **{lb}** degrades (R²={bundle['results'][lb].score:.6f}): each daily "
+                "leaf-refit re-weights *all* leaves toward one noisy day; cumulative "
+                "refits drag the fit off. `Booster.refit` is the wrong online analog for "
+                "a tree model."
+            )
+    for lb in labels_for("continue"):
+        cs = bundle["results"][lb].score
         if cs < 0:
             L.append(
-                f"- **continue** blows up (R²={cs:.6f}): adding "
-                f"`{config.continue_rounds}` trees per day on a *single* day's rows "
-                "compounds over ~200 updates into a heavily over-fit ensemble "
-                "(prediction range explodes well past the target's [-5, 5]). Daily "
-                "continued boosting is unstable without shrinkage / a held-out check."
+                f"- **{lb}** blows up (R²={cs:.6f}): adding trees per day on a single "
+                "day's rows compounds into a heavily over-fit ensemble (prediction range "
+                "explodes past the target's [-5, 5])."
             )
-        elif cs > full.score:
-            L.append(
-                f"- **continue** helps (R²={cs:.6f}): appending trees on recent days "
-                "adapts the static fit."
-            )
-        else:
-            L.append(
-                f"- **continue** does not help (R²={cs:.6f}): appending trees on "
-                "recent days did not beat the static fit."
-            )
-    if bundle["results"].get("retrain"):
-        rs = bundle["results"]["retrain"].score
-        verb = "is the strongest" if best == "retrain" else "did not win"
+    retrain_labels = labels_for("retrain")
+    if retrain_labels:
+        best_rt = max(retrain_labels, key=lambda lb: bundle["results"][lb].score)
+        verb = "is the strongest" if best in retrain_labels else "did not win"
         L.append(
-            f"- **retrain** {verb} (R²={rs:.6f}): expanding retrain reincorporates the "
-            "early-stopping holdout and every revealed day, so it trains on more data "
-            "than the static/online variants — the closest analog to her expanding CV."
+            f"- **retrain** {verb}: expanding retrain reincorporates the early-stopping "
+            "holdout and every revealed day, so it trains on more data than the "
+            "static/online variants — the closest analog to her expanding CV."
         )
+        if len(retrain_labels) > 1:
+            curve = ", ".join(
+                f"{lb}={bundle['results'][lb].score:.6f}({bundle['cadence_used'][lb]}d/"
+                f"{bundle['results'][lb].n_updates}u)"
+                for lb in retrain_labels
+            )
+            L.append(
+                f"- retrain cadence sweep (R²/cadence/updates): {curve}. Best: "
+                f"`{best_rt}`. Finer cadence ⇒ more retrains (cost) for the marginal R²."
+            )
     L.append("")
     L.append("## Next steps")
     L.append("")
-    L.append("1. Tune `continue_rounds` / `refit_decay` / `update_cadence` trade-offs.")
-    L.append("2. Repo-style 2-fold CV + 200-day gap protocol.")
-    L.append("3. Feature engineering parity, then the GRU estimator behind the same API.")
+    L.append("1. Repo-style 2-fold CV + 200-day gap protocol.")
+    L.append("2. Feature engineering parity, then the GRU estimator behind the same API.")
     L.append("")
     return "\n".join(L)
 
@@ -319,8 +327,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Override cadence for ALL selected methods (else per-method defaults).",
     )
     parser.add_argument("--retrain-cadence", type=int, default=None)
-    parser.add_argument("--out-dir", default="outputs/incremental_vs_full/lgbm_v0")
-    parser.add_argument("--docs-out", default="docs/experiments/lgbm_v0_incremental_vs_full.md")
+    parser.add_argument(
+        "--retrain-cadences", default=None,
+        help="Sweep mode: comma list of retrain cadences, e.g. '100,50,25'. When set, "
+        "runs full + retrain at each cadence (ignores --methods).",
+    )
+    parser.add_argument("--out-dir", default="experiments/incremental_vs_full/lgbm_v0")
+    parser.add_argument("--docs-out", default="experiments/incremental_vs_full/lgbm_v0/report.md")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--n-estimators", type=int, default=None)
     parser.add_argument("--early-stopping-rounds", type=int, default=None)
@@ -328,7 +341,20 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = load_lgbm_config(args.config)
-        methods = _parse_methods(args.methods)
+        if args.retrain_cadences:
+            # Sweep mode: full + retrain at each listed cadence.
+            cads = [int(c) for c in args.retrain_cadences.split(",") if c.strip()]
+            if not cads:
+                raise ValueError("--retrain-cadences was empty")
+            specs = [(f"retrain_c{c}", "retrain", c) for c in cads]
+        else:
+            methods = _parse_methods(args.methods)
+            cadences = {m: DEFAULT_METHOD_CADENCE[m] for m in methods}
+            if args.cadence is not None:
+                cadences = {m: args.cadence for m in methods}
+            if args.retrain_cadence is not None and "retrain" in cadences:
+                cadences["retrain"] = args.retrain_cadence
+            specs = [(m, m, cadences[m]) for m in methods]
     except (FileNotFoundError, ValueError, KeyError) as exc:
         print(f"[js2024] ERROR: {exc}", file=sys.stderr)
         return 1
@@ -343,18 +369,12 @@ def main(argv: list[str] | None = None) -> int:
     if overrides:
         config = validate_lgbm_config(dataclasses.replace(config, **overrides))
 
-    cadences = {m: DEFAULT_METHOD_CADENCE[m] for m in methods}
-    if args.cadence is not None:
-        cadences = {m: args.cadence for m in methods}
-    if args.retrain_cadence is not None and "retrain" in cadences:
-        cadences["retrain"] = args.retrain_cadence
-
     feature_cols = get_v0_feature_columns(include_symbol=True, include_time=True)
 
     print(
         f"[js2024] incremental-vs-full | start={config.start_date_id} "
         f"test_days={config.test_days} | variants: full, "
-        + ", ".join(f"{m}(cad={cadences[m]})" for m in methods)
+        + ", ".join(f"{lb}(cad={cad})" for lb, _, cad in specs)
     )
     if args.dry_run:
         print("[js2024] Dry run: no training performed.")
@@ -378,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[js2024] Shared frame: {df.height:,} rows.")
 
     try:
-        bundle = run_suite(config, df, feature_cols=feature_cols, methods=methods, cadences=cadences)
+        bundle = run_suite(config, df, feature_cols=feature_cols, specs=specs)
     except ValueError as exc:
         print(f"[js2024] ERROR: {exc}", file=sys.stderr)
         return 1
