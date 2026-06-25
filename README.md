@@ -170,6 +170,11 @@ we use for later parity with `evgeniavolkova/kagglejanestreet`):
 uv run js2024-train-lgbm --config configs/lgbm_v0_recent700.yaml
 ```
 
+Formal LightGBM configs default to the local GPU/OpenCL backend
+(`device_type: gpu`, `max_bin: 255`) because the full recent700 benchmark matched
+or exceeded the CPU score while running faster. Keep `configs/lgbm_v0_smoke.yaml`
+on CPU for quick smoke checks, where GPU kernel compilation overhead dominates.
+
 `configs/lgbm_v0.yaml` is the full-data config (no `start_date_id` bound — heavier,
 prefer `recent700` first):
 
@@ -205,13 +210,14 @@ frame is loaded once and reused). All artifacts go under `experiments/` (gitigno
 ```bash
 uv run js2024-run-lgbm-split-experiments \
   --base-config configs/lgbm_v0_recent700.yaml \
-  --valid-days 100,200,300 --gap-days 0,5,20 \
-  --out-dir experiments/split_experiments/lgbm_v0_recent700
+  --valid-days 100,200,300 --gap-days 0,5,20
 ```
 
 Useful flags: `--dry-run` (print the grid only), `--limit N` (first N combos),
-`--n-estimators` / `--early-stopping-rounds` (quick-debug overrides). The summary is
-folded into [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §2.
+`--n-estimators` / `--early-stopping-rounds` (quick-debug overrides). By default,
+each experiment writes to a timestamped directory under `experiments/`; pass
+`--out-dir` only when you intentionally want a fixed path. The summary is folded
+into [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §2.
 
 ### Incremental vs full (walk-forward)
 
@@ -243,11 +249,42 @@ uv run js2024-run-incremental-vs-full \
 The early-stopping holdout is carved from the **train tail**, never the test block,
 so the "full" number is leakage-clean (and may differ slightly from the recent700
 baseline, which uses the last-200 block as its `eval_set`). The engine is
-model-agnostic (`Estimator` protocol: `fit` / `update` / `predict`) so a future GRU
-can slot in behind the same API. Useful flags: `--methods`, `--retrain-cadences`,
-`--dry-run`, `--test-days`, `--cadence`, `--n-estimators`. Results (incl. the finding
-that only **retrain** beats static training) are recorded in
-[`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §3–4.
+model-agnostic (`Estimator` protocol: `fit` / `update` / `predict`), and the **GRU
+slots in behind the same API** (see below). Useful flags: `--methods`,
+`--retrain-cadences`, `--dry-run`, `--test-days`, `--cadence`, `--n-estimators`.
+Results (incl. the finding that only **retrain** beats static training) are recorded
+in [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §3–4.
+
+### GRU walk-forward (sequence model)
+
+`GRUEstimator` is a GRU over per-`symbol_id` lookback windows that satisfies the
+same `Estimator` protocol, so it is driven by the **same** `walk_forward_evaluate`
+engine and fixed-test-block protocol as LightGBM — its weighted zero-mean R² is
+directly comparable. Each row's prediction comes from a length-`seq_len` window of
+that symbol's `(date_id, time_id)`-ordered feature vectors (standardized, NaN→mean);
+`symbol_id` is encoded via the per-symbol sequencing rather than as a raw input. A
+per-symbol context buffer is advanced in `predict` using **features only** (no
+labels), so it is leakage-clean. `gru_incremental` runs a few fine-tuning gradient
+steps on each revealed chunk — the neural analog of online learning.
+
+All walk-forward models run through one **config-driven** entrypoint,
+`js2024-run-experiment`. The YAML's `model:` key selects a spec from the model
+registry (`src/js2024/modeling/registry.py` — currently `gru`,
+`gru_evgeniavolkova`, `lgbm`) and `variants:` (`full`, `incremental`) selects
+which walk-forward variants to evaluate; there is no per-model runner script.
+
+```bash
+uv run js2024-run-experiment --config configs/gru_v0.yaml
+uv run js2024-run-experiment --config configs/gru_v0.yaml --variants full
+```
+
+Useful flags: `--variants`, `--test-days`, `--update-cadence`, `--out-dir`,
+`--docs-out`, `--dry-run`. Training uses PyTorch; `device: auto` in the config
+picks CUDA when available, else CPU (force with `device: cpu`/`cuda`). The
+committed output is the markdown report; CSV/model artifacts go under the
+gitignored `experiments/` tree. To run a model side-by-side as a reference, point
+the runner at that model's config (e.g. an `lgbm` config) — comparisons are made
+by running configs, not by special-casing one runner.
 
 ## Tests
 
@@ -302,9 +339,7 @@ Console scripts (defined in `pyproject.toml`) are unchanged by the layout — e.
 
 ## Explicitly not implemented yet
 
-- GRU / neural models
 - Auxiliary targets
-- Online learning
 - Ensembling
 - Kaggle inference gateway / submission packaging
 - Full `evgeniavolkova/kagglejanestreet` parity

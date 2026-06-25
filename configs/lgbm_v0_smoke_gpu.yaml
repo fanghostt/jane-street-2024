@@ -1,0 +1,24 @@
+# LightGBM V0 smoke configuration using the GPU/OpenCL trainer.
+# This is for checking that the GPU path works; smoke scores are not meaningful.
+
+train_path: data/interim/train_smoke.parquet
+output_dir: outputs
+model_dir: models
+
+start_date_id: null
+end_date_id: null
+
+valid_days: 3
+gap_days: 0
+
+random_state: 42
+n_estimators: 100
+learning_rate: 0.05
+num_leaves: 31
+subsample: 0.8
+colsample_bytree: 0.8
+early_stopping_rounds: 20
+
+device_type: gpu
+max_bin: 63
+gpu_use_dp: false

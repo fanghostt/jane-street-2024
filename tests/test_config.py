@@ -1,9 +1,13 @@
 import pytest
 
 from js2024.modeling.config import (
+    GRUEvgeniavolkovaConfig,
     PROJECT_ROOT,
     LGBMConfig,
+    gru_evgeniavolkova_params,
+    load_gru_evgeniavolkova_config,
     load_lgbm_config,
+    validate_gru_evgeniavolkova_config,
     validate_lgbm_config,
 )
 
@@ -37,11 +41,51 @@ def test_smoke_config_loads():
     assert cfg.n_estimators == 100
     assert cfg.early_stopping_rounds == 20
     assert cfg.start_date_id is None and cfg.end_date_id is None
+    assert cfg.device_type == "cpu"
+    assert cfg.max_bin == 255
 
 
 def test_v0_config_loads():
     cfg = load_lgbm_config(PROJECT_ROOT / "configs" / "lgbm_v0.yaml")
     assert cfg.valid_days == 200
+    assert cfg.device_type == "gpu"
+    assert cfg.max_bin == 255
+
+
+def test_recent700_config_defaults_to_gpu():
+    cfg = load_lgbm_config(PROJECT_ROOT / "configs" / "lgbm_v0_recent700.yaml")
+    assert cfg.device_type == "gpu"
+    assert cfg.max_bin == 255
+    assert cfg.gpu_use_dp is False
+
+
+def test_gru_evgeniavolkova_config_loads():
+    cfg = load_gru_evgeniavolkova_config(PROJECT_ROOT / "configs" / "gru_evgeniavolkova_v1.yaml")
+    assert cfg.train_path == "data/raw/train.parquet"
+    assert cfg.start_date_id == 700
+    assert cfg.hidden_sizes == [500]
+    assert cfg.hidden_sizes_linear == [500, 300]
+    assert cfg.lr == 0.0005
+    assert cfg.lr_refit == 0.0003
+    assert cfg.epochs == 1000
+    params = gru_evgeniavolkova_params(cfg)
+    assert params["hidden_sizes"] == [500]
+    assert params["early_stopping_patience"] == 1
+
+
+def test_validate_gru_evgeniavolkova_rejects_mismatched_dropouts():
+    cfg = GRUEvgeniavolkovaConfig(
+        train_path="x",
+        start_date_id=700,
+        end_date_id=None,
+        valid_days=200,
+        gap_days=0,
+        random_state=42,
+        hidden_sizes=[500, 300],
+        dropout_rates=[0.3],
+    )
+    with pytest.raises(ValueError, match="dropout_rates length"):
+        validate_gru_evgeniavolkova_config(cfg)
 
 
 def test_validate_accepts_valid_config():

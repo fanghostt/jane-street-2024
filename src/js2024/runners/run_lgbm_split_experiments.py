@@ -38,6 +38,7 @@ import polars as pl
 from ..modeling.config import LGBMConfig, load_lgbm_config
 from ..data.data import get_default_columns, load_train_data, validate_data_path
 from ..modeling.config import resolve_project_path
+from ..modeling.experiments import timestamped_run_dir, write_manifest
 from ..modeling.train_lgbm import LGBMRunResult, run
 
 EXPECTED_START_DATE_ID = 700
@@ -312,12 +313,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-config", default="configs/lgbm_v0_recent700.yaml")
     parser.add_argument("--valid-days", default="100,200,300")
     parser.add_argument("--gap-days", default="0,5,20")
-    parser.add_argument(
-        "--out-dir", default="experiments/split_experiments/lgbm_v0_recent700"
-    )
-    parser.add_argument(
-        "--docs-out", default="experiments/split_experiments/lgbm_v0_recent700/report.md"
-    )
+    parser.add_argument("--out-dir", default=None)
+    parser.add_argument("--docs-out", default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--n-estimators", type=int, default=None)
@@ -360,7 +357,10 @@ def main(argv: list[str] | None = None) -> int:
         print("[js2024] Dry run: no training performed.")
         return 0
 
-    out_dir = resolve_project_path(args.out_dir)
+    default_out_dir = timestamped_run_dir(
+        f"experiments/split_experiments/{base_stem}"
+    )
+    out_dir = resolve_project_path(args.out_dir or default_out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Load the train frame ONCE and reuse it across all splits.
@@ -414,7 +414,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n[js2024] Wrote {out_dir / 'summary.csv'} and summary.md")
 
     status = "completed" if len(rows) == len(grid) else f"partial ({len(rows)}/{len(grid)})"
-    docs_path = resolve_project_path(args.docs_out)
+    write_manifest(
+        out_dir / "manifest.json",
+        runner="js2024-run-lgbm-split-experiments",
+        base_config=args.base_config,
+        valid_days=valid_days,
+        gap_days=gap_days,
+        grid=[{"valid_days": vd, "gap_days": gd} for vd, gd in grid],
+        status=status,
+        out_dir=str(out_dir),
+    )
+    print(f"[js2024] Wrote {out_dir / 'manifest.json'}")
+
+    docs_path = resolve_project_path(args.docs_out or (out_dir / "report.md"))
     docs_path.parent.mkdir(parents=True, exist_ok=True)
     docs_path.write_text(
         render_docs(rows, grid, base_stem, base.start_date_id, status),

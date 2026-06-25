@@ -25,6 +25,9 @@ this file is the only committed experiment doc.
   it jumps 849→968 at day 677), matching `evgeniavolkova/kagglejanestreet`.
 - Hyperparameters: `n_estimators=3000`, `learning_rate=0.03`, `num_leaves=64`,
   `subsample=0.8`, `colsample_bytree=0.8`, `early_stopping_rounds=100`, `seed=42`.
+- Default backend after the 2026-06-25 GPU sweep: LightGBM OpenCL GPU
+  (`device_type=gpu`, `max_bin=255`, `gpu_use_dp=false`). Smoke configs remain CPU
+  because GPU kernel compilation overhead dominates small runs.
 
 ## 1. Baseline (recent700)
 
@@ -36,6 +39,23 @@ this file is the only committed experiment doc.
   (`time_id` is #1 — strong intraday/seasonal structure).
 - Note: this run uses the last-200 block as its early-stopping `eval_set`, so it is the
   *reference* number; the leakage-clean number (§3) is slightly lower.
+
+### 1.1 GPU backend sweep (recent700)
+
+Full recent700 runs on the same split showed GPU/OpenCL with `max_bin=255` is the
+best default on this workstation:
+
+| backend | max_bin | best_iter | R² | elapsed |
+| --- | ---: | ---: | ---: | ---: |
+| CPU | 255 | 980 | 0.010469 | historical |
+| GPU/OpenCL | 63 | 856 | 0.010104 | 261.08s |
+| GPU/OpenCL | 127 | 739 | 0.010251 | 247.91s |
+| **GPU/OpenCL** | **255** | **1033** | **0.010662** | **313.14s** |
+
+**Decision:** make `device_type=gpu`, `max_bin=255`, `gpu_use_dp=false` the default
+for formal LightGBM configs. The older CPU result remains a useful historical
+baseline, but new LGBM comparisons should use the GPU default unless explicitly
+testing CPU behavior.
 
 ## 2. Split stability
 

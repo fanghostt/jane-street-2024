@@ -130,6 +130,9 @@ def run(
         num_leaves=config.num_leaves,
         subsample=config.subsample,
         colsample_bytree=config.colsample_bytree,
+        device_type=config.device_type,
+        max_bin=config.max_bin,
+        gpu_use_dp=config.gpu_use_dp,
         random_state=config.random_state,
         n_jobs=-1,
     )
