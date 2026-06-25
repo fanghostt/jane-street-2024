@@ -170,13 +170,8 @@ we use for later parity with `evgeniavolkova/kagglejanestreet`):
 uv run js2024-train-lgbm --config configs/lgbm_v0_recent700.yaml
 ```
 
-A full-data config is also provided (heavier — prefer `recent700` first):
-
-```bash
-uv run js2024-train-lgbm --config configs/lgbm_v0_full.yaml
-```
-
-The original `configs/lgbm_v0.yaml` remains as a generic example:
+`configs/lgbm_v0.yaml` is the full-data config (no `start_date_id` bound — heavier,
+prefer `recent700` first):
 
 ```bash
 uv run js2024-train-lgbm --config configs/lgbm_v0.yaml
@@ -191,8 +186,11 @@ Outputs (all **gitignored — do not commit**):
 - `outputs/reports/lgbm_v0_report.md` — run report (metric, distributions,
   top-30 feature importance)
 
-A committed, large-file-free summary of baseline runs lives in
-[`docs/experiments/lgbm_v0_baseline.md`](docs/experiments/lgbm_v0_baseline.md).
+All V0 experiment results (baseline, split stability, incremental-vs-full, retrain
+cadence sweep) are recorded in the single committed log
+[`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md). Single-run artifacts
+go to `outputs/`; multi-run experiment artifacts go to a separate top-level
+`experiments/` directory (both gitignored).
 
 If the data is missing, the CLI prints a clear error pointing to
 `data/raw/train.parquet` and exits non-zero — it does not crash or fabricate
@@ -202,22 +200,54 @@ results.
 
 To check that the recent700 baseline R² is not a single-split artifact, run the
 same raw-feature model across a grid of `valid_days` × `gap_days` (the big train
-frame is loaded once and reused). Heavy per-split artifacts go under
-`outputs/split_experiments/` (gitignored); the committed output is the markdown
-doc.
+frame is loaded once and reused). All artifacts go under `experiments/` (gitignored).
 
 ```bash
 uv run js2024-run-lgbm-split-experiments \
   --base-config configs/lgbm_v0_recent700.yaml \
   --valid-days 100,200,300 --gap-days 0,5,20 \
-  --out-dir outputs/split_experiments/lgbm_v0_recent700 \
-  --docs-out docs/experiments/lgbm_v0_split_experiments.md
+  --out-dir experiments/split_experiments/lgbm_v0_recent700
 ```
 
 Useful flags: `--dry-run` (print the grid only), `--limit N` (first N combos),
-`--n-estimators` / `--early-stopping-rounds` (quick-debug overrides). Results
-are recorded in
-[`docs/experiments/lgbm_v0_split_experiments.md`](docs/experiments/lgbm_v0_split_experiments.md).
+`--n-estimators` / `--early-stopping-rounds` (quick-debug overrides). The summary is
+folded into [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §2.
+
+### Incremental vs full (walk-forward)
+
+Compare a statically-trained LightGBM (**full**) against three **incremental**
+update strategies as the model walks a *fixed* trailing test block (the last
+`test_days` date_ids, default 200):
+
+- **refit** — daily `Booster.refit` of leaf values on each revealed day;
+- **continue** — daily continued boosting (add `continue_rounds` trees);
+- **retrain** — expanding retrain from scratch on all data so far (coarse cadence).
+
+This is the leakage-clean LightGBM analog of the "with vs without online learning"
+comparison in
+[`evgeniavolkova/kagglejanestreet`](https://github.com/evgeniavolkova/kagglejanestreet).
+All variants share one training region and are scored on the *same* test block, so
+the numbers are directly comparable.
+
+```bash
+uv run js2024-run-incremental-vs-full \
+  --config configs/lgbm_v0_incremental.yaml \
+  --methods refit,continue,retrain \
+  --out-dir experiments/incremental_vs_full/lgbm_v0
+
+# or sweep retrain cadence:
+uv run js2024-run-incremental-vs-full \
+  --config configs/lgbm_v0_incremental.yaml --retrain-cadences 100,50,25
+```
+
+The early-stopping holdout is carved from the **train tail**, never the test block,
+so the "full" number is leakage-clean (and may differ slightly from the recent700
+baseline, which uses the last-200 block as its `eval_set`). The engine is
+model-agnostic (`Estimator` protocol: `fit` / `update` / `predict`) so a future GRU
+can slot in behind the same API. Useful flags: `--methods`, `--retrain-cadences`,
+`--dry-run`, `--test-days`, `--cadence`, `--n-estimators`. Results (incl. the finding
+that only **retrain** beats static training) are recorded in
+[`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §3–4.
 
 ## Tests
 
@@ -249,8 +279,9 @@ uv.lock         # pinned dependency lockfile (commit this)
 configs/        # YAML run configs
 data/           # raw / interim / features (gitignored)
 models/         # trained models (gitignored)
-outputs/        # oof predictions, reports, submissions (gitignored)
-notebooks/      # markdown notes (EDA, metric & split)
+outputs/        # single-run artifacts: oof, reports, submissions (gitignored)
+experiments/    # multi-run experiment artifacts (gitignored)
+notebooks/      # markdown notes (metric & split derivation)
 src/js2024/     # package: metrics, validation, data, features, config, training
 tests/          # pytest suite
 ```

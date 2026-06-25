@@ -12,8 +12,8 @@ Usage
     uv run js2024-run-lgbm-split-experiments \\
         --base-config configs/lgbm_v0_recent700.yaml \\
         --valid-days 100,200,300 --gap-days 0,5,20 \\
-        --out-dir outputs/split_experiments/lgbm_v0_recent700 \\
-        --docs-out docs/experiments/lgbm_v0_split_experiments.md
+        --out-dir experiments/split_experiments/lgbm_v0_recent700 \\
+        --docs-out experiments/split_experiments/lgbm_v0_recent700/report.md
 
 The big train frame is loaded **once** and reused across every split. Heavy
 artifacts (per-split model / OOF / report + summary.csv/md) go under ``--out-dir``
@@ -313,10 +313,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--valid-days", default="100,200,300")
     parser.add_argument("--gap-days", default="0,5,20")
     parser.add_argument(
-        "--out-dir", default="outputs/split_experiments/lgbm_v0_recent700"
+        "--out-dir", default="experiments/split_experiments/lgbm_v0_recent700"
     )
     parser.add_argument(
-        "--docs-out", default="docs/experiments/lgbm_v0_split_experiments.md"
+        "--docs-out", default="experiments/split_experiments/lgbm_v0_recent700/report.md"
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=None)

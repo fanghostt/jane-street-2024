@@ -1,0 +1,38 @@
+# LightGBM V0 — incremental (daily leaf-refit) vs full training on a fixed test block.
+# Raw-feature baseline: feature_00..feature_78 + symbol_id + time_id. No feature
+# engineering, no GRU/ensemble/clipping. start_date_id=700 matches evgeniavolkova.
+# Paths are resolved relative to the project root.
+
+train_path: data/raw/train.parquet
+output_dir: outputs
+model_dir: models
+
+# Train on date_id >= 700 (no upper bound).
+start_date_id: 700
+end_date_id: null
+
+# Fixed trailing TEST block (scored, shared by both modes).
+test_days: 200
+
+# Early-stopping holdout carved from the TRAIN tail (never the test block).
+valid_days: 200
+gap_days: 0
+
+# Incremental update params. The runner compares `full` plus the methods chosen
+# via `--methods` (default refit,continue,retrain); these fields tune them.
+# - refit:    Booster.refit leaf values, blended by refit_decay.
+# - continue: continued boosting, adding continue_rounds trees per update.
+# - retrain:  expanding retrain from scratch (coarse cadence; see --retrain-cadence).
+update_method: refit
+update_cadence: 1
+refit_decay: 0.9
+continue_rounds: 10
+
+# Model hyperparameters.
+random_state: 42
+n_estimators: 3000
+learning_rate: 0.03
+num_leaves: 64
+subsample: 0.8
+colsample_bytree: 0.8
+early_stopping_rounds: 100
