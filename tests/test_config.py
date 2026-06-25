@@ -34,7 +34,7 @@ def _valid_config(**overrides) -> LGBMConfig:
 
 
 def test_smoke_config_loads():
-    cfg = load_lgbm_config(PROJECT_ROOT / "configs" / "lgbm_v0_smoke.yaml")
+    cfg = load_lgbm_config(PROJECT_ROOT / "configs" / "smoke" / "lgbm_v0_smoke.yaml")
     assert cfg.train_path == "data/interim/train_smoke.parquet"
     assert cfg.valid_days == 3
     assert cfg.gap_days == 0

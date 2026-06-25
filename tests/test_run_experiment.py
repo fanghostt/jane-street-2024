@@ -89,6 +89,65 @@ def test_cli_runs_full_variant_only(tmp_path):
     assert "gru_full" in docs.read_text(encoding="utf-8")
 
 
+def _write_lgbm_config(path, train_path):
+    path.write_text(
+        "\n".join(
+            [
+                "model: lgbm",
+                "variants: [full, incremental]",
+                f"train_path: {train_path}",
+                "output_dir: outputs",
+                "model_dir: models",
+                "start_date_id: 0",
+                "end_date_id: null",
+                "test_days: 2",
+                "valid_days: 2",
+                "gap_days: 0",
+                "update_methods: [refit, continue, retrain]",
+                "update_cadence: 1",
+                "refit_decay: 0.9",
+                "continue_rounds: 2",
+                "random_state: 42",
+                "n_estimators: 20",
+                "learning_rate: 0.1",
+                "num_leaves: 7",
+                "subsample: 1.0",
+                "colsample_bytree: 1.0",
+                "early_stopping_rounds: 5",
+                "device_type: cpu",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_lgbm_incremental_expands_into_named_methods(tmp_path):
+    train = tmp_path / "train.parquet"
+    _write_fake_train(train, n_days=10, symbols=4)
+    cfg = tmp_path / "cfg.yaml"
+    _write_lgbm_config(cfg, train)
+    out_dir = tmp_path / "out"
+    docs = tmp_path / "doc.md"
+
+    rc = main(
+        ["--config", str(cfg), "--out-dir", str(out_dir), "--docs-out", str(docs)]
+    )
+    assert rc == 0
+
+    summary = pl.read_csv(out_dir / "summary.csv")
+    variants = summary.get_column("variant").to_list()
+    # `incremental` expanded into one named row per online strategy — never the
+    # generic `lgbm_incremental`.
+    assert variants == ["lgbm_full", "lgbm_refit", "lgbm_continue", "lgbm_retrain"]
+    assert "lgbm_incremental" not in variants
+    doc_text = docs.read_text(encoding="utf-8")
+    assert "lgbm_retrain" in doc_text
+    # full never updates; the online variants do (cadence=1 over a 2-day block).
+    by_variant = dict(zip(variants, summary.get_column("n_updates").to_list()))
+    assert by_variant["lgbm_full"] == 0
+    assert by_variant["lgbm_refit"] >= 1
+
+
 def test_cli_unknown_model_errors(tmp_path):
     cfg = tmp_path / "cfg.yaml"
     cfg.write_text("model: nope\ntrain_path: x\nvalid_days: 2\n", encoding="utf-8")

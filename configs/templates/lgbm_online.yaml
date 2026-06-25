@@ -1,0 +1,54 @@
+# TEMPLATE — LightGBM config-driven walk-forward (js2024-run-experiment).
+#
+# Reference/documentation only. Copy into `configs/` and trim to the keys you
+# actually vary before running; the runner is pointed at the copy, not at this file.
+#
+# Same fixed-test-block protocol as the GRU experiments, so the LightGBM online
+# analogs are directly comparable with the GRU online numbers.
+#
+# The walk-forward variant stays model-agnostic (full vs incremental). LightGBM's
+# `incremental` variant expands via the second-level `update_methods` param into one
+# named run per online strategy, so the report shows `lgbm_refit` / `lgbm_continue` /
+# `lgbm_retrain` instead of a single generic `lgbm_incremental`.
+
+model: lgbm
+variants: [full, incremental]   # walk-forward variants (model-agnostic)
+
+train_path: data/raw/train.parquet
+output_dir: outputs
+model_dir: models
+
+# Date range. start_date_id=700 matches evgeniavolkova; null = no upper bound.
+start_date_id: 700
+end_date_id: null
+
+# Fixed trailing TEST block (scored, shared by every variant).
+test_days: 200
+
+# Early-stopping holdout carved from the TRAIN tail (never the test block).
+valid_days: 200
+gap_days: 0
+
+# Second-level online taxonomy. `incremental` expands into these named runs:
+# - refit:    Booster.refit leaf values, blended by refit_decay (true online).
+# - continue: continued boosting, adding continue_rounds trees per update (true online).
+# - retrain:  expanding retrain from scratch — NOT online, an upper-bound reference;
+#             prefer a coarse update_cadence to keep its cost bounded (cadence=1 over a
+#             200-day block means ~200 full retrains).
+# Omit `update_methods` to run a single strategy via `update_method:` instead.
+update_methods: [refit, continue, retrain]
+update_cadence: 1
+refit_decay: 0.9
+continue_rounds: 10
+
+# Model hyperparameters.
+random_state: 42
+n_estimators: 3000
+learning_rate: 0.03
+num_leaves: 64
+subsample: 0.8
+colsample_bytree: 0.8
+early_stopping_rounds: 100
+device_type: gpu
+max_bin: 255
+gpu_use_dp: false

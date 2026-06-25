@@ -151,7 +151,7 @@ uv run js2024-make-smoke-data \
 Then run the baseline against the smoke config:
 
 ```bash
-uv run js2024-train-lgbm --config configs/lgbm_v0_smoke.yaml
+uv run js2024-train-lgbm --config configs/smoke/lgbm_v0_smoke.yaml
 ```
 
 This trains a small (100-tree) model on a handful of days purely to confirm the
@@ -172,7 +172,7 @@ uv run js2024-train-lgbm --config configs/lgbm_v0_recent700.yaml
 
 Formal LightGBM configs default to the local GPU/OpenCL backend
 (`device_type: gpu`, `max_bin: 255`) because the full recent700 benchmark matched
-or exceeded the CPU score while running faster. Keep `configs/lgbm_v0_smoke.yaml`
+or exceeded the CPU score while running faster. Keep `configs/smoke/lgbm_v0_smoke.yaml`
 on CPU for quick smoke checks, where GPU kernel compilation overhead dominates.
 
 `configs/lgbm_v0.yaml` is the full-data config (no `start_date_id` bound — heavier,
@@ -313,7 +313,7 @@ a perfect prediction scores 1; bad predictions go negative. See
 ```
 pyproject.toml  # project metadata, deps, console script, pytest config
 uv.lock         # pinned dependency lockfile (commit this)
-configs/        # YAML run configs
+configs/        # YAML run configs (templates/ = documented refs; smoke/ = tiny-data checks)
 data/           # raw / interim / features (gitignored)
 models/         # trained models (gitignored)
 outputs/        # single-run artifacts: oof, reports, submissions (gitignored)

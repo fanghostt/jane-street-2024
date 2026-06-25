@@ -13,6 +13,11 @@ Variants map to walk-forward modes:
 - ``incremental`` -> ``mode="incremental"`` at ``config.update_cadence``
   (NN fine-tuning or LightGBM online update on each revealed chunk).
 
+The ``incremental`` variant stays model-agnostic, but a model may expand it into
+several named sub-runs via :attr:`ModelSpec.incremental_runs` — LightGBM uses this
+to report its online taxonomy (``lgbm_refit``/``lgbm_continue``/``lgbm_retrain``)
+as distinct rows instead of a single generic ``lgbm_incremental``.
+
 The estimator is always fit on the train region only; the engine never trains it and
 never feeds a test day's labels to ``update`` before that day is predicted.
 """
@@ -103,22 +108,30 @@ def run_walk_forward_suite(
 
     for variant in variants:
         mode = VARIANT_MODES[variant]
-        label = f"{spec.name}_{variant}"
         cadence = 0 if mode == "full" else config.update_cadence
-        print(f"\n[js2024] === {label} (cadence={cadence}) ===")
-        est = spec.make_estimator(config, feature_cols)
-        est.fit(train_df, valid_df)
-        results[label] = walk_forward_evaluate(
-            est, df, test_start, test_end,
-            mode=mode, update_cadence=max(cadence, 1),
-            target_col=TARGET_COLUMN, weight_col=WEIGHT_COLUMN,
-        )
-        cadence_used[label] = cadence
-        labels.append(label)
-        print(
-            f"[js2024] {label}: R²={results[label].score:.6f} "
-            f"(updates={results[label].n_updates})"
-        )
+        # The `incremental` variant may expand into several model-specific runs
+        # (e.g. LightGBM's refit/continue/retrain), each labelled by its strategy
+        # rather than the generic `incremental`.
+        if mode == "incremental" and spec.incremental_runs is not None:
+            runs = spec.incremental_runs(config, feature_cols)
+        else:
+            runs = [(variant, spec.make_estimator(config, feature_cols))]
+
+        for sub_label, est in runs:
+            label = f"{spec.name}_{sub_label}"
+            print(f"\n[js2024] === {label} (cadence={cadence}) ===")
+            est.fit(train_df, valid_df)
+            results[label] = walk_forward_evaluate(
+                est, df, test_start, test_end,
+                mode=mode, update_cadence=max(cadence, 1),
+                target_col=TARGET_COLUMN, weight_col=WEIGHT_COLUMN,
+            )
+            cadence_used[label] = cadence
+            labels.append(label)
+            print(
+                f"[js2024] {label}: R²={results[label].score:.6f} "
+                f"(updates={results[label].n_updates})"
+            )
 
     return SuiteBundle(
         model=spec.name,

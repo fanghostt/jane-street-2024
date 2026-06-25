@@ -62,6 +62,13 @@ class LGBMConfig:
     # and the other runners are unaffected.
     test_days: int = 200
     update_method: str = "refit"
+    # Second-level online taxonomy: when set, the `incremental` variant expands
+    # into one labelled run per method (e.g. `lgbm_refit`/`lgbm_continue`/
+    # `lgbm_retrain`) instead of a single generic `incremental` row. Lets one
+    # config compare every online analog side-by-side while the walk-forward
+    # variant stays model-agnostic (full/incremental). When None, the single
+    # `update_method` above is used.
+    update_methods: list[str] | None = None
     update_cadence: int = 1
     refit_decay: float = 0.9
     continue_rounds: int = 10
@@ -109,6 +116,19 @@ def validate_lgbm_config(config: LGBMConfig) -> LGBMConfig:
             "update_method must be one of {'refit', 'continue', 'retrain'}, got "
             f"{config.update_method!r}"
         )
+    if config.update_methods is not None:
+        if not config.update_methods:
+            errors.append("update_methods, when set, must be a non-empty list")
+        bad_methods = [
+            m for m in config.update_methods if m not in {"refit", "continue", "retrain"}
+        ]
+        if bad_methods:
+            errors.append(
+                "update_methods must each be one of {'refit', 'continue', 'retrain'}, "
+                f"got {bad_methods}"
+            )
+        if len(set(config.update_methods)) != len(config.update_methods):
+            errors.append(f"update_methods has duplicates: {config.update_methods}")
     if not (0 <= config.refit_decay <= 1):
         errors.append(f"refit_decay must be in [0, 1], got {config.refit_decay}")
     if config.continue_rounds <= 0:
@@ -141,6 +161,11 @@ def load_lgbm_config(path: str | Path) -> LGBMConfig:
         gpu_use_dp=bool(raw.get("gpu_use_dp", False)),
         test_days=int(raw.get("test_days", 200)),
         update_method=str(raw.get("update_method", "refit")),
+        update_methods=(
+            [str(m) for m in raw["update_methods"]]
+            if raw.get("update_methods") is not None
+            else None
+        ),
         update_cadence=int(raw.get("update_cadence", 1)),
         refit_decay=float(raw.get("refit_decay", 0.9)),
         continue_rounds=int(raw.get("continue_rounds", 10)),

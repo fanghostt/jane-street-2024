@@ -59,6 +59,12 @@ class ModelSpec:
     make_estimator: Callable[[Any, list[str]], Estimator]
     load_frame: Callable[[Any, list[str]], pl.DataFrame]
     describe: Callable[[Any], list[str]]
+    # Optional hook expanding the `incremental` variant into several model-specific
+    # sub-runs, each ``(sub_label, estimator)``. Used by LightGBM to surface its
+    # online taxonomy (refit/continue/retrain) as distinct, named rows rather than
+    # a single generic `incremental`. ``None`` -> one `incremental` run via
+    # ``make_estimator``.
+    incremental_runs: Callable[[Any, list[str]], list[tuple[str, Estimator]]] | None = None
 
 
 def _load_default_frame(config: Any, feature_cols: list[str]) -> pl.DataFrame:
@@ -169,7 +175,9 @@ def _lgbm_features(config: LGBMConfig) -> list[str]:
     return get_v0_feature_columns(include_symbol=True, include_time=True)
 
 
-def _make_lgbm(config: LGBMConfig, feature_cols: list[str]) -> LGBMEstimator:
+def _make_lgbm(
+    config: LGBMConfig, feature_cols: list[str], *, update_method: str | None = None
+) -> LGBMEstimator:
     return LGBMEstimator(
         feature_cols=feature_cols,
         target_col=TARGET_COLUMN,
@@ -186,18 +194,38 @@ def _make_lgbm(config: LGBMConfig, feature_cols: list[str]) -> LGBMEstimator:
             "random_state": config.random_state,
         },
         early_stopping_rounds=config.early_stopping_rounds,
-        update_method=config.update_method,
+        update_method=update_method or config.update_method,
         refit_decay=config.refit_decay,
         continue_rounds=config.continue_rounds,
     )
 
 
+def _lgbm_online_methods(config: LGBMConfig) -> list[str]:
+    """The online strategies the `incremental` variant expands into for LightGBM."""
+    return config.update_methods or [config.update_method]
+
+
+def _lgbm_incremental_runs(
+    config: LGBMConfig, feature_cols: list[str]
+) -> list[tuple[str, LGBMEstimator]]:
+    """One ``(method, estimator)`` per configured online strategy.
+
+    The sub-label is the bare method name so the suite renders it as
+    ``lgbm_refit``/``lgbm_continue``/``lgbm_retrain`` instead of ``lgbm_incremental``.
+    """
+    return [(m, _make_lgbm(config, feature_cols, update_method=m)) for m in _lgbm_online_methods(config)]
+
+
 def _lgbm_describe(config: LGBMConfig) -> list[str]:
+    methods = _lgbm_online_methods(config)
+    online = (
+        f"online methods `{methods}`" if config.update_methods is not None
+        else f"online `update_method={config.update_method!r}`"
+    )
     return [
         f"LightGBM: `n_estimators={config.n_estimators}`, "
         f"`learning_rate={config.learning_rate}`, `num_leaves={config.num_leaves}`, "
-        f"`device_type={config.device_type}`; online `update_method="
-        f"{config.update_method!r}`, cadence={config.update_cadence}.",
+        f"`device_type={config.device_type}`; {online}, cadence={config.update_cadence}.",
         "inputs: the V0 raw feature set (`symbol_id` + `time_id` as columns).",
     ]
 
@@ -229,6 +257,7 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         make_estimator=_make_lgbm,
         load_frame=_load_default_frame,
         describe=_lgbm_describe,
+        incremental_runs=_lgbm_incremental_runs,
     ),
 }
 

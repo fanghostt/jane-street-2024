@@ -1,10 +1,5 @@
-# GRU V0 — walk-forward (full vs fine-tune) on a fixed trailing test block.
-# Sequence model over per-symbol_id lookback windows, behind the same
-# fit/update/predict interface and the same engine as the LightGBM baseline, so
-# the weighted zero-mean R² is directly comparable. start_date_id=700 matches the
-# evgeniavolkova parity baseline. Paths are resolved relative to the project root.
-
-# Registry model + walk-forward variants (consumed by js2024-run-experiment).
+# GRU V0 walk-forward run. See configs/templates/gru.yaml for the documented
+# template. `incremental` runs a single fine-tune (gru_incremental).
 model: gru
 variants: [full, incremental]
 
@@ -12,21 +7,16 @@ train_path: data/raw/train.parquet
 output_dir: outputs
 model_dir: models
 
-# Train on date_id >= 700 (no upper bound).
 start_date_id: 700
 end_date_id: null
 
-# Fixed trailing TEST block (scored, shared by both modes).
 test_days: 200
-# Early-stopping holdout carved from the TRAIN tail (never the test block).
 valid_days: 200
 gap_days: 0
-# Fine-tune cadence for gru_incremental (days between updates).
 update_cadence: 1
 
-# Model.
 random_state: 42
-device: auto  # "auto" uses CUDA when available, else CPU; or force "cpu"/"cuda".
+device: auto
 include_time: false
 seq_len: 16
 hidden_size: 64
@@ -40,6 +30,5 @@ early_stopping_rounds: 5
 finetune_epochs: 1
 finetune_lr: 0.0005
 
-# "auto" materializes windows for small frames and streams by date for full data.
 train_mode: auto
 max_materialized_windows_gib: 8.0
