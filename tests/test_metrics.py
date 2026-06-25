@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from js2024.metrics import weighted_zero_mean_r2
+from js2024.modeling.metrics import weighted_zero_mean_r2
 
 
 def test_perfect_prediction_returns_one():

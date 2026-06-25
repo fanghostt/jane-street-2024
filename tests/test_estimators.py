@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from js2024.estimators import Estimator, LGBMEstimator
+from js2024.modeling.estimators import Estimator, LGBMEstimator
 
 FEATURES = [f"feature_{i:02d}" for i in range(79)]
 

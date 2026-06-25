@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import yaml
 
-from js2024.run_lgbm_split_experiments import (
+from js2024.runners.run_lgbm_split_experiments import (
     build_grid,
     main,
     make_run_name,

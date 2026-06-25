@@ -10,7 +10,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from js2024.walk_forward import walk_forward_evaluate
+from js2024.modeling.walk_forward import walk_forward_evaluate
 
 
 class FakeEstimator:

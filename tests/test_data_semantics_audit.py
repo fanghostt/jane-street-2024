@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from js2024.data_semantics_audit import (
+from js2024.data.data_semantics_audit import (
     audit_features_csv,
     audit_parquet,
     audit_responders_csv,

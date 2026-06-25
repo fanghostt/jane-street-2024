@@ -7,7 +7,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from js2024.data import FEATURE_COLUMNS, TARGET_COLUMN, WEIGHT_COLUMN
+from js2024.data.data import FEATURE_COLUMNS, TARGET_COLUMN, WEIGHT_COLUMN
 
 
 def make_train_frame(n: int = 12, drop_columns: list[str] | None = None) -> pl.DataFrame:

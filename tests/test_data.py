@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from js2024.data import (
+from js2024.data.data import (
     FEATURE_COLUMNS,
     ID_COLUMNS,
     TARGET_COLUMN,

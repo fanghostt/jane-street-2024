@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from js2024.make_smoke_data import main, make_smoke_data
+from js2024.data.make_smoke_data import main, make_smoke_data
 
 
 def test_make_smoke_date_range(tmp_path, write_train):

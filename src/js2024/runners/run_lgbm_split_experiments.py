@@ -35,10 +35,10 @@ from typing import Any
 
 import polars as pl
 
-from .config import LGBMConfig, load_lgbm_config
-from .data import get_default_columns, load_train_data, validate_data_path
-from .config import resolve_project_path
-from .train_lgbm import LGBMRunResult, run
+from ..modeling.config import LGBMConfig, load_lgbm_config
+from ..data.data import get_default_columns, load_train_data, validate_data_path
+from ..modeling.config import resolve_project_path
+from ..modeling.train_lgbm import LGBMRunResult, run
 
 EXPECTED_START_DATE_ID = 700
 
