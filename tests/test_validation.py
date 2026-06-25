@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from js2024.validation import (
+from js2024.modeling.validation import (
     DateRangeSplit,
     build_holdout_split,
     filter_by_date_range,

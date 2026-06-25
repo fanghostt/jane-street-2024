@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from js2024 import download_data
-from js2024.download_data import (
+from js2024.data import download_data
+from js2024.data.download_data import (
     CredentialsError,
     download_competition,
     ensure_kaggle_credentials,

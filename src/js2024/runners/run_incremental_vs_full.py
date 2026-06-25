@@ -43,8 +43,8 @@ from typing import Any
 
 import polars as pl
 
-from .config import LGBMConfig, load_lgbm_config, resolve_project_path, validate_lgbm_config
-from .data import (
+from ..modeling.config import LGBMConfig, load_lgbm_config, resolve_project_path, validate_lgbm_config
+from ..data.data import (
     TARGET_COLUMN,
     WEIGHT_COLUMN,
     get_default_columns,
@@ -52,10 +52,10 @@ from .data import (
     load_train_data,
     validate_data_path,
 )
-from .estimators import UPDATE_METHODS, LGBMEstimator
-from .features import get_v0_feature_columns
-from .validation import build_holdout_split, filter_by_date_range, summarize_date_split
-from .walk_forward import WalkForwardResult, walk_forward_evaluate
+from ..modeling.estimators import UPDATE_METHODS, LGBMEstimator
+from ..modeling.features import get_v0_feature_columns
+from ..modeling.validation import build_holdout_split, filter_by_date_range, summarize_date_split
+from ..modeling.walk_forward import WalkForwardResult, walk_forward_evaluate
 
 # Per-method default cadence: refit/continue are cheap (daily); retrain is a full
 # fit per step, so it defaults to a coarse cadence.

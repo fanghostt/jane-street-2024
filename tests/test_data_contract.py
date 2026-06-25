@@ -1,6 +1,6 @@
 import pytest
 
-from js2024.data_contract import (
+from js2024.data.data_contract import (
     RAW_REQUIRED_FILES,
     check_raw_data_contract,
     contract_ok,

@@ -1,4 +1,4 @@
-from js2024.data_profile import main, profile_train_data, write_profile
+from js2024.data.data_profile import main, profile_train_data, write_profile
 
 
 def test_profile_stats(write_train):

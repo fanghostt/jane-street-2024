@@ -4,7 +4,7 @@ Usage
 -----
 From the project root::
 
-    PYTHONPATH=src python -m js2024.train_lgbm --config configs/lgbm_v0.yaml
+    PYTHONPATH=src python -m js2024.modeling.train_lgbm --config configs/lgbm_v0.yaml
 
 The script reads ``train.parquet`` (path from config), builds a date-based
 holdout split, trains a single ``LGBMRegressor`` with sample weights and early
@@ -23,7 +23,7 @@ import numpy as np
 import polars as pl
 
 from .config import LGBMConfig, load_lgbm_config, resolve_project_path
-from .data import (
+from ..data.data import (
     TARGET_COLUMN,
     WEIGHT_COLUMN,
     get_default_columns,

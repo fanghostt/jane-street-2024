@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from js2024.run_incremental_vs_full import main
+from js2024.runners.run_incremental_vs_full import main
 
 FEATURES = [f"feature_{i:02d}" for i in range(79)]
 

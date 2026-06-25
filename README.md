@@ -176,7 +176,7 @@ prefer `recent700` first):
 ```bash
 uv run js2024-train-lgbm --config configs/lgbm_v0.yaml
 # or, equivalently:
-uv run python -m js2024.train_lgbm --config configs/lgbm_v0.yaml
+uv run python -m js2024.modeling.train_lgbm --config configs/lgbm_v0.yaml
 ```
 
 Outputs (all **gitignored — do not commit**):
@@ -269,7 +269,7 @@ R2 = 1 - sum(w_i * (y_i - yhat_i)^2) / sum(w_i * y_i^2)
 The denominator uses `y_i^2`, not variance around a weighted mean, so this is
 **not** `sklearn.metrics.r2_score`. A constant-zero prediction scores exactly 0;
 a perfect prediction scores 1; bad predictions go negative. See
-`src/js2024/metrics.py` and `notebooks/01_metric_and_split.md`.
+`src/js2024/modeling/metrics.py` and `notebooks/01_metric_and_split.md`.
 
 ## Repository layout
 
@@ -282,9 +282,15 @@ models/         # trained models (gitignored)
 outputs/        # single-run artifacts: oof, reports, submissions (gitignored)
 experiments/    # multi-run experiment artifacts (gitignored)
 notebooks/      # markdown notes (metric & split derivation)
-src/js2024/     # package: metrics, validation, data, features, config, training
+src/js2024/     # package, grouped into subpackages:
+  data/         #   loading, contract checks, profiling, download, semantics audit
+  modeling/     #   config, features, metrics, validation, estimators, training
+  runners/      #   experiment CLIs (split experiments, incremental-vs-full)
 tests/          # pytest suite
 ```
+
+Console scripts (defined in `pyproject.toml`) are unchanged by the layout — e.g.
+`uv run js2024-train-lgbm`, `uv run js2024-run-incremental-vs-full`.
 
 ## V0 acceptance criteria
 

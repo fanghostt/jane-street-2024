@@ -1,6 +1,6 @@
 import pytest
 
-from js2024.config import (
+from js2024.modeling.config import (
     PROJECT_ROOT,
     LGBMConfig,
     load_lgbm_config,

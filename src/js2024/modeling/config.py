@@ -13,8 +13,8 @@ from typing import Any
 
 import yaml
 
-# src/js2024/config.py -> parents[0]=js2024, [1]=src, [2]=project root
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# src/js2024/modeling/config.py -> [0]=modeling, [1]=js2024, [2]=src, [3]=project root
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def load_yaml_config(path: str | Path) -> dict[str, Any]:

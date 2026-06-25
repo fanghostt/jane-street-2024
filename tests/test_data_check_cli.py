@@ -1,4 +1,4 @@
-from js2024.data_check import main
+from js2024.data.data_check import main
 
 
 def test_cli_success(raw_dir_factory, capsys):

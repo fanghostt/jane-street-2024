@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import yaml
 
-from js2024.train_lgbm import main
+from js2024.modeling.train_lgbm import main
 
 
 def _write_config(tmp_path, train_path, **overrides):
