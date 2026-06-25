@@ -12,6 +12,15 @@ are directly comparable:
 ``full`` is just ``incremental`` with zero updates, so a single loop drives both and
 the prediction path is identical. A leakage guard asserts no test day's labels are
 ever fed to ``update`` before that day has been predicted.
+
+Evaluation granularity
+----------------------
+This engine performs a **``date_id``-level** walk-forward: each step reveals,
+predicts, and scores one whole ``date_id`` at a time, and (in ``incremental`` mode)
+``update`` only ever sees already-predicted ``date_id``s. This is the intended local
+validation protocol. It is *not* the strict Kaggle online API, which streams at
+``time_id`` granularity *within* a day. Reproducing exact Kaggle ``time_id``-level
+streaming parity is deferred to separate future work.
 """
 
 from __future__ import annotations

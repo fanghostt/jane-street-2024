@@ -9,7 +9,11 @@ import pytest
 torch = pytest.importorskip("torch")  # skip the whole module if torch is absent
 
 from js2024.modeling.estimators import Estimator, GRUEstimator  # noqa: E402
-from js2024.modeling.features import build_symbol_windows  # noqa: E402
+from js2024.modeling.features import (  # noqa: E402
+    build_symbol_windows,
+    standardized_symbol_tails,
+)
+from js2024.modeling.walk_forward import walk_forward_evaluate  # noqa: E402
 
 FEATURES = [f"feature_{i:02d}" for i in range(8)]
 
@@ -145,6 +149,121 @@ def test_determinism_same_seed():
     a = _est(seed=7).fit(train).predict(test, _advance_buffer=False)
     b = _est(seed=7).fit(train).predict(test, _advance_buffer=False)
     assert np.allclose(a, b)
+
+
+# --- walk-forward integration (mode="full" vs incremental) -----------------
+
+def test_gru_full_does_not_update_weights():
+    """mode="full" only predicts; the engine never calls update(), so the trained
+    weights must be byte-for-byte unchanged after a walk over the test block."""
+    df = _frame()
+    est = _est().fit(df.filter(pl.col("date_id") < 8))
+    before = {k: v.detach().clone() for k, v in est._model.state_dict().items()}
+
+    walk_forward_evaluate(est, df, test_start=8, test_end=11, mode="full")
+
+    after = est._model.state_dict()
+    assert before.keys() == set(after.keys())
+    for k, v in before.items():
+        assert torch.equal(v, after[k]), f"weight {k!r} changed under mode='full'"
+
+
+def test_gru_full_advances_feature_buffer():
+    """Even though mode="full" never calls update(), predict() must still advance the
+    cross-day feature buffer so day-spanning windows stay correct. After predicting a
+    day, that day's standardized features become the tail of the per-symbol buffer."""
+    df = _frame()
+    est = _est().fit(df.filter(pl.col("date_id") < 8))
+    before_tail = {s: rows[-1].copy() for s, rows in est._buffer.items()}
+
+    day = df.filter(pl.col("date_id") == 8)
+    est.predict(day)  # _advance_buffer=True by default
+
+    # The buffer tail is now the test day's standardized features (one row/symbol/day).
+    expected = standardized_symbol_tails(day, FEATURES, est._mean, est._std, keep=1)
+    assert expected, "test day produced no symbol tails"
+    for sym, rows in expected.items():
+        assert np.allclose(est._buffer[sym][-1], rows[-1], atol=1e-6)
+        # And it actually moved off the post-fit (train-tail) value.
+        assert not np.allclose(est._buffer[sym][-1], before_tail[sym], atol=1e-6)
+
+
+def test_gru_buffer_ignores_labels():
+    """The cross-day buffer carries standardized *features* only — never labels. A
+    sentinel label must never leak into the buffer that predict() advances."""
+    df = _frame()
+    est = _est().fit(df.filter(pl.col("date_id") < 8))
+    SENTINEL = 999.0
+    day = df.filter(pl.col("date_id") == 8).with_columns(
+        pl.lit(SENTINEL).alias("responder_6")
+    )
+
+    est.predict(day, _advance_buffer=True)
+
+    for rows in est._buffer.values():
+        assert not np.any(np.isclose(rows, SENTINEL)), "label sentinel leaked into buffer"
+
+
+def test_gru_incremental_updates_only_after_prediction():
+    """Leakage invariant for incremental mode: the latest date_id ever fed to update()
+    must not exceed the latest date_id already predicted."""
+
+    class _RecordingGRU(GRUEstimator):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.max_updated: int | None = None
+            self.max_predicted: int | None = None
+
+        def update(self, df_new):
+            if df_new.height:
+                hi = int(df_new.get_column("date_id").max())
+                self.max_updated = hi if self.max_updated is None else max(self.max_updated, hi)
+            return super().update(df_new)
+
+        def predict(self, df, *, _advance_buffer: bool = True):
+            if df.height:
+                hi = int(df.get_column("date_id").max())
+                self.max_predicted = (
+                    hi if self.max_predicted is None else max(self.max_predicted, hi)
+                )
+            return super().predict(df, _advance_buffer=_advance_buffer)
+
+    df = _frame()
+    est = _RecordingGRU(
+        feature_cols=FEATURES,
+        target_col="responder_6",
+        weight_col="weight",
+        params={
+            "seq_len": 4,
+            "hidden_size": 8,
+            "num_layers": 1,
+            "epochs": 2,
+            "batch_size": 64,
+            "early_stopping_rounds": 2,
+            "finetune_epochs": 1,
+            "lr": 0.01,
+        },
+        random_state=42,
+    ).fit(df.filter(pl.col("date_id") < 8))
+
+    res = walk_forward_evaluate(
+        est, df, test_start=8, test_end=11, mode="incremental", update_cadence=1
+    )
+
+    assert res.n_updates > 0  # incremental actually exercised update()
+    assert est.max_updated is not None and est.max_predicted is not None
+    assert est.max_updated <= est.max_predicted
+
+
+def test_gru_day_level_eval_documented():
+    """The local walk-forward is date_id-level; strict Kaggle time_id-level streaming
+    parity is explicitly deferred. Keep that caveat documented on the engine."""
+    import js2024.modeling.walk_forward as wf
+
+    doc = (wf.__doc__ or "").lower()
+    assert "date_id" in doc
+    assert "time_id" in doc
+    assert "kaggle" in doc
 
 
 # --- build_symbol_windows unit tests ---------------------------------------
