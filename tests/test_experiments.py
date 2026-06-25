@@ -20,8 +20,8 @@ def test_timestamped_run_dir_appends_optional_label():
 
 def test_dated_run_dir_dates_the_project_folder():
     dt = datetime(2026, 6, 25, 17, 6, 28, tzinfo=timezone.utc)
-    run = dated_run_dir("experiments", "gru_evgeniavolkova", now=dt)
-    assert run.parent.name == "20260625_gru_evgeniavolkova"
+    run = dated_run_dir("experiments", "gru", now=dt)
+    assert run.parent.name == "20260625_gru"
     assert run.name == "170628"
-    assert str(run) == "experiments/20260625_gru_evgeniavolkova/170628"
+    assert str(run) == "experiments/20260625_gru/170628"
 

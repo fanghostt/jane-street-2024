@@ -1,52 +1,43 @@
-# TEMPLATE — GRU V0 config-driven walk-forward (js2024-run-experiment).
+# TEMPLATE — GRU (day-batch) config-driven walk-forward (js2024-run-experiment).
 #
 # Reference/documentation only. Copy into `configs/` and trim to the keys you
 # actually vary before running; the runner is pointed at the copy, not at this file.
 #
-# Sequence model over per-symbol_id lookback windows, behind the same
-# fit/update/predict interface and the same engine as the LightGBM baseline, so the
-# weighted zero-mean R² is directly comparable. Unlike LightGBM, GRU's `incremental`
-# variant is a single fine-tune (no second-level `update_methods` taxonomy): it runs
-# as one `gru_incremental` row.
+# Day-batch GRU + auxiliary responder heads + online refit LR — closer to
+# evgeniavolkova/kagglejanestreet. Feature engineering (market averages / rolling
+# stats) is left for a later version. Its `incremental` variant is a single online
+# refit (no second-level `update_methods` taxonomy).
 
 model: gru
 variants: [full, incremental]   # walk-forward variants (model-agnostic)
 
 train_path: data/raw/train.parquet
-output_dir: outputs
-model_dir: models
 
-# Date range. start_date_id=700 matches the evgeniavolkova parity baseline;
-# null = no bound.
+# Date range. start_date_id=700 matches the parity baseline; null = no bound.
 start_date_id: 700
 end_date_id: null
 
-# Fixed trailing TEST block (scored, shared by both variants).
+# Fixed trailing TEST block + train-tail early-stopping holdout.
 test_days: 200
-# Early-stopping holdout carved from the TRAIN tail (never the test block).
 valid_days: 200
 gap_days: 0
-# Fine-tune cadence for gru_incremental (days between updates).
+# Online refit cadence (days between updates).
 update_cadence: 1
 
-# Model.
 random_state: 42
 device: auto          # "auto" uses CUDA when available, else CPU; or "cpu"/"cuda".
-include_time: false   # add `time_id` as a model input alongside the 79 features.
-seq_len: 16           # per-symbol lookback window length.
-hidden_size: 64
-num_layers: 1
-dropout: 0.0          # only applied between stacked layers (num_layers > 1).
-lr: 0.001
-weight_decay: 0.0
-epochs: 20
-batch_size: 1024
-early_stopping_rounds: 5
-finetune_epochs: 1    # gradient passes per online update.
-finetune_lr: 0.0005   # learning rate for the online fine-tune.
+include_time: true    # add `time_id` as a model input.
 
-# Window materialization. "auto" materializes for small frames and streams by date
-# once the window tensor would exceed max_materialized_windows_gib; force with
-# "materialize" / "stream".
-train_mode: auto
-max_materialized_windows_gib: 8.0
+# GRU + linear-head sizes. dropout_rates length must match hidden_sizes, and
+# dropout_rates_linear must match hidden_sizes_linear.
+hidden_sizes: [500]
+dropout_rates: [0.3]
+hidden_sizes_linear: [500, 300]
+dropout_rates_linear: [0.2, 0.1]
+
+lr: 0.0005            # offline training LR.
+lr_refit: 0.0003      # online refit LR (per update).
+epochs: 1000
+early_stopping_patience: 1
+weight_decay: 0.01
+grad_clip: 1.0

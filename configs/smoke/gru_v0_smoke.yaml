@@ -1,40 +1,28 @@
-# GRU V0 *smoke* configuration.
-# Walk-forward evaluates a tiny GRU on data/interim/train_smoke.parquet purely to
-# validate the data -> split -> fit -> walk-forward -> summary/doc loop. The score
-# is NOT meaningful — generate the smoke parquet first with js2024-make-smoke-data.
-# Paths are resolved relative to the project root.
-
-# Registry model + walk-forward variants (consumed by js2024-run-experiment).
+# Tiny smoke config for the day-batch GRU via js2024-run-experiment.
 model: gru
 variants: [full, incremental]
 
 train_path: data/interim/train_smoke.parquet
-output_dir: outputs
-model_dir: models
 
 start_date_id: null
 end_date_id: null
 
-# Fixed trailing TEST block + train-tail early-stopping holdout (tiny for smoke).
 test_days: 2
 valid_days: 2
 gap_days: 0
 update_cadence: 1
 
-# GRU hyperparameters (small/fast — smoke only).
 random_state: 42
-device: auto  # "auto" uses CUDA when available, else CPU; or force "cpu"/"cuda".
-include_time: false
-seq_len: 4
-hidden_size: 8
-num_layers: 1
-dropout: 0.0
-lr: 0.01
-weight_decay: 0.0
+device: auto
+include_time: true
+
+hidden_sizes: [16]
+dropout_rates: [0.0]
+hidden_sizes_linear: [16]
+dropout_rates_linear: [0.0]
+lr: 0.001
+lr_refit: 0.0005
 epochs: 2
-batch_size: 256
-early_stopping_rounds: 2
-finetune_epochs: 1
-finetune_lr: 0.005
-train_mode: auto
-max_materialized_windows_gib: 8.0
+early_stopping_patience: 1
+weight_decay: 0.0
+grad_clip: 1.0

@@ -1,13 +1,13 @@
 import pytest
 
 from js2024.modeling.config import (
-    GRUEvgeniavolkovaConfig,
+    GRUConfig,
     PROJECT_ROOT,
     LGBMConfig,
-    gru_evgeniavolkova_params,
-    load_gru_evgeniavolkova_config,
+    gru_params,
+    load_gru_config,
     load_lgbm_config,
-    validate_gru_evgeniavolkova_config,
+    validate_gru_config,
     validate_lgbm_config,
 )
 
@@ -59,8 +59,8 @@ def test_recent700_config_defaults_to_gpu():
     assert cfg.gpu_use_dp is False
 
 
-def test_gru_evgeniavolkova_config_loads():
-    cfg = load_gru_evgeniavolkova_config(PROJECT_ROOT / "configs" / "gru_evgeniavolkova_v1.yaml")
+def test_gru_config_loads():
+    cfg = load_gru_config(PROJECT_ROOT / "configs" / "gru_v0.yaml")
     assert cfg.train_path == "data/raw/train.parquet"
     assert cfg.start_date_id == 700
     assert cfg.hidden_sizes == [500]
@@ -68,13 +68,13 @@ def test_gru_evgeniavolkova_config_loads():
     assert cfg.lr == 0.0005
     assert cfg.lr_refit == 0.0003
     assert cfg.epochs == 1000
-    params = gru_evgeniavolkova_params(cfg)
+    params = gru_params(cfg)
     assert params["hidden_sizes"] == [500]
     assert params["early_stopping_patience"] == 1
 
 
-def test_validate_gru_evgeniavolkova_rejects_mismatched_dropouts():
-    cfg = GRUEvgeniavolkovaConfig(
+def test_validate_gru_rejects_mismatched_dropouts():
+    cfg = GRUConfig(
         train_path="x",
         start_date_id=700,
         end_date_id=None,
@@ -85,7 +85,7 @@ def test_validate_gru_evgeniavolkova_rejects_mismatched_dropouts():
         dropout_rates=[0.3],
     )
     with pytest.raises(ValueError, match="dropout_rates length"):
-        validate_gru_evgeniavolkova_config(cfg)
+        validate_gru_config(cfg)
 
 
 def test_validate_accepts_valid_config():

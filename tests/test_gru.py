@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from js2024.modeling.gru_evgeniavolkova import (
-    add_gru_evgeniavolkova_aux_targets,
-    get_gru_evgeniavolkova_feature_columns,
+from js2024.modeling.gru import (
+    add_gru_aux_targets,
+    get_gru_feature_columns,
 )
 from js2024.runners.run_experiment import main
 
@@ -13,15 +13,15 @@ from js2024.runners.run_experiment import main
 FEATURES = [f"feature_{i:02d}" for i in range(79)]
 
 
-def test_evgeniavolkova_feature_columns_drop_categoricals_and_include_time():
-    cols = get_gru_evgeniavolkova_feature_columns(include_time=True)
+def test_gru_feature_columns_drop_categoricals_and_include_time():
+    cols = get_gru_feature_columns(include_time=True)
     assert "feature_09" not in cols
     assert "feature_10" not in cols
     assert "feature_11" not in cols
     assert "time_id" in cols
 
 
-def test_add_gru_evgeniavolkova_aux_targets():
+def test_add_gru_aux_targets():
     df = pl.DataFrame(
         {
             "symbol_id": [0, 0, 0, 0, 0],
@@ -30,7 +30,7 @@ def test_add_gru_evgeniavolkova_aux_targets():
             "responder_8": [20.0, 21.0, 22.0, 23.0, 24.0],
         }
     )
-    out = add_gru_evgeniavolkova_aux_targets(df)
+    out = add_gru_aux_targets(df)
     assert "responder_9" in out.columns
     assert "responder_10" in out.columns
     # responder_9 = responder_8 + shift(-4) within symbol, fill null with 0.
@@ -59,7 +59,7 @@ def _write_config(path, train_path):
     path.write_text(
         "\n".join(
             [
-                "model: gru_evgeniavolkova",
+                "model: gru",
                 "variants: [full, incremental]",
                 f"train_path: {train_path}",
                 "start_date_id: 0",
@@ -87,7 +87,7 @@ def _write_config(path, train_path):
     )
 
 
-def test_evgeniavolkova_runs_via_generic_runner(tmp_path):
+def test_gru_runs_via_generic_runner(tmp_path):
     train = tmp_path / "train.parquet"
     _write_fake_train(train)
     cfg = tmp_path / "cfg.yaml"
@@ -98,5 +98,5 @@ def test_evgeniavolkova_runs_via_generic_runner(tmp_path):
 
     assert rc == 0
     summary = pl.read_csv(out / "summary.csv")
-    assert summary.get_column("variant").to_list() == ["gru_evgeniavolkova_full"]
+    assert summary.get_column("variant").to_list() == ["gru_full"]
     assert (out / "manifest.json").exists()

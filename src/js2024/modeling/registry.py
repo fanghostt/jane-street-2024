@@ -30,21 +30,18 @@ from ..data.data import (
 )
 from .config import (
     GRUConfig,
-    GRUEvgeniavolkovaConfig,
     LGBMConfig,
     gru_params,
-    gru_evgeniavolkova_params,
     load_gru_config,
-    load_gru_evgeniavolkova_config,
     load_lgbm_config,
     resolve_project_path,
 )
-from .estimators import Estimator, GRUEstimator, LGBMEstimator
-from .features import get_gru_feature_columns, get_v0_feature_columns
-from .gru_evgeniavolkova import (
-    GRUEvgeniavolkovaEstimator,
-    add_gru_evgeniavolkova_aux_targets,
-    get_gru_evgeniavolkova_feature_columns,
+from .estimators import Estimator, LGBMEstimator
+from .features import get_v0_feature_columns
+from .gru import (
+    GRUEstimator,
+    add_gru_aux_targets,
+    get_gru_feature_columns,
 )
 
 
@@ -81,7 +78,7 @@ def _load_default_frame(config: Any, feature_cols: list[str]) -> pl.DataFrame:
     )
 
 
-# --- GRU V0 ---------------------------------------------------------------
+# --- GRU (day-batch, public-solution style) -------------------------------
 
 
 def _gru_features(config: GRUConfig) -> list[str]:
@@ -99,39 +96,8 @@ def _make_gru(config: GRUConfig, feature_cols: list[str]) -> GRUEstimator:
     )
 
 
-def _gru_describe(config: GRUConfig) -> list[str]:
-    return [
-        f"GRU: `seq_len={config.seq_len}`, `hidden_size={config.hidden_size}`, "
-        f"`num_layers={config.num_layers}`, `dropout={config.dropout}`, "
-        f"`epochs={config.epochs}`, `lr={config.lr}`; fine-tune "
-        f"`finetune_epochs={config.finetune_epochs}` @ `lr={config.finetune_lr}`, "
-        f"cadence={config.update_cadence}.",
-        "inputs: the 79 raw `feature_*`"
-        + (" + `time_id`" if config.include_time else "")
-        + " (standardized, NaN→mean); `symbol_id` via per-symbol sequencing.",
-    ]
-
-
-# --- GRU evgeniavolkova (public-solution day-batch GRU) -------------------
-
-
-def _evgeniavolkova_features(config: GRUEvgeniavolkovaConfig) -> list[str]:
-    return get_gru_evgeniavolkova_feature_columns(include_time=config.include_time)
-
-
-def _make_evgeniavolkova(config: GRUEvgeniavolkovaConfig, feature_cols: list[str]) -> GRUEvgeniavolkovaEstimator:
-    return GRUEvgeniavolkovaEstimator(
-        feature_cols=feature_cols,
-        target_col=TARGET_COLUMN,
-        weight_col=WEIGHT_COLUMN,
-        params=gru_evgeniavolkova_params(config),
-        random_state=config.random_state,
-        device=config.device,
-    )
-
-
-def _load_evgeniavolkova_frame(config: GRUEvgeniavolkovaConfig, feature_cols: list[str]) -> pl.DataFrame:
-    """Load features + the responder columns needed for the evgeniavolkova auxiliaries."""
+def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
+    """Load features + the responder columns needed for the GRU auxiliaries."""
     train_path = resolve_project_path(config.train_path)
     validate_data_path(train_path)
     available = set(scan_train_data(train_path).collect_schema().names())
@@ -156,12 +122,12 @@ def _load_evgeniavolkova_frame(config: GRUEvgeniavolkovaConfig, feature_cols: li
                 "as a smoke-only auxiliary placeholder."
             )
             df = df.with_columns(pl.col(TARGET_COLUMN).alias(aux_col))
-    return add_gru_evgeniavolkova_aux_targets(df)
+    return add_gru_aux_targets(df)
 
 
-def _evgeniavolkova_describe(config: GRUEvgeniavolkovaConfig) -> list[str]:
+def _gru_describe(config: GRUConfig) -> list[str]:
     return [
-        f"GRU (evgeniavolkova): `hidden_sizes={config.hidden_sizes}`, "
+        f"GRU (day-batch): `hidden_sizes={config.hidden_sizes}`, "
         f"`epochs={config.epochs}`, `lr={config.lr}`, `lr_refit={config.lr_refit}`, "
         f"cadence={config.update_cadence}.",
         "day-batch GRU with auxiliary responder heads (public-solution style).",
@@ -233,21 +199,12 @@ def _lgbm_describe(config: LGBMConfig) -> list[str]:
 MODEL_REGISTRY: dict[str, ModelSpec] = {
     "gru": ModelSpec(
         name="gru",
-        title="GRU V0",
+        title="GRU (day-batch)",
         load_config=load_gru_config,
         feature_columns=_gru_features,
         make_estimator=_make_gru,
-        load_frame=_load_default_frame,
+        load_frame=_load_gru_frame,
         describe=_gru_describe,
-    ),
-    "gru_evgeniavolkova": ModelSpec(
-        name="gru_evgeniavolkova",
-        title="GRU (evgeniavolkova)",
-        load_config=load_gru_evgeniavolkova_config,
-        feature_columns=_evgeniavolkova_features,
-        make_estimator=_make_evgeniavolkova,
-        load_frame=_load_evgeniavolkova_frame,
-        describe=_evgeniavolkova_describe,
     ),
     "lgbm": ModelSpec(
         name="lgbm",

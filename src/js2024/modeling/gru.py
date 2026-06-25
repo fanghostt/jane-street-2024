@@ -18,10 +18,10 @@ from ..data.data import FEATURE_COLUMNS, TARGET_COLUMN, WEIGHT_COLUMN
 from .features import fit_feature_standardizer
 from .metrics import weighted_zero_mean_r2
 
-EVGENIAVOLKOVA_AUX_COLUMNS = ["responder_10", "responder_9", "responder_8", "responder_7"]
+GRU_AUX_COLUMNS = ["responder_10", "responder_9", "responder_8", "responder_7"]
 
 
-def get_gru_evgeniavolkova_feature_columns(include_time: bool = True) -> list[str]:
+def get_gru_feature_columns(include_time: bool = True) -> list[str]:
     """Public-solution-style raw inputs: all features except 09-11, plus time_id."""
     cols = [c for c in FEATURE_COLUMNS if c not in {"feature_09", "feature_10", "feature_11"}]
     if include_time:
@@ -29,12 +29,12 @@ def get_gru_evgeniavolkova_feature_columns(include_time: bool = True) -> list[st
     return cols
 
 
-def add_gru_evgeniavolkova_aux_targets(df: pl.DataFrame) -> pl.DataFrame:
+def add_gru_aux_targets(df: pl.DataFrame) -> pl.DataFrame:
     """Add responder_9/10 auxiliary targets described in the public solution."""
     needed = {"responder_6", "responder_7", "responder_8", "symbol_id"}
     missing = sorted(needed.difference(df.columns))
     if missing:
-        raise ValueError(f"Missing columns for GRU evgeniavolkova auxiliaries: {missing}")
+        raise ValueError(f"Missing columns for GRU auxiliaries: {missing}")
     return df.with_columns(
         (
             pl.col("responder_8")
@@ -145,8 +145,8 @@ def _build_model(n_features: int, params: dict[str, Any]):
     class ModelR(nn.Module):
         def __init__(self) -> None:
             super().__init__()
-            self.heads = nn.ModuleList([ModelRBase() for _ in EVGENIAVOLKOVA_AUX_COLUMNS])
-            self.out = nn.Linear(len(EVGENIAVOLKOVA_AUX_COLUMNS), 1)
+            self.heads = nn.ModuleList([ModelRBase() for _ in GRU_AUX_COLUMNS])
+            self.out = nn.Linear(len(GRU_AUX_COLUMNS), 1)
 
         def forward(self, x, hidden=None):
             if hidden is None:
@@ -159,13 +159,13 @@ def _build_model(n_features: int, params: dict[str, Any]):
                 next_hidden.append(h)
             aux = __import__("torch").cat(aux_preds, dim=1)
             y = self.out(aux).reshape(x.shape[0], x.shape[1])
-            aux = aux.reshape(x.shape[0], x.shape[1], len(EVGENIAVOLKOVA_AUX_COLUMNS))
+            aux = aux.reshape(x.shape[0], x.shape[1], len(GRU_AUX_COLUMNS))
             return y, aux, next_hidden
 
     return ModelR()
 
 
-GRU_EVGENIAVOLKOVA_DEFAULT_PARAMS: dict[str, Any] = {
+GRU_DEFAULT_PARAMS: dict[str, Any] = {
     "model_type": "gru",
     "hidden_sizes": [500],
     "dropout_rates": [0.3],
@@ -180,7 +180,7 @@ GRU_EVGENIAVOLKOVA_DEFAULT_PARAMS: dict[str, Any] = {
 }
 
 
-class GRUEvgeniavolkovaEstimator:
+class GRUEstimator:
     """Day-batch GRU with auxiliary responders and online fine-tuning."""
 
     def __init__(
@@ -196,7 +196,7 @@ class GRUEvgeniavolkovaEstimator:
         self.feature_cols = list(feature_cols)
         self.target_col = target_col
         self.weight_col = weight_col
-        self.params = {**GRU_EVGENIAVOLKOVA_DEFAULT_PARAMS, **(params or {})}
+        self.params = {**GRU_DEFAULT_PARAMS, **(params or {})}
         self.random_state = int(random_state)
         self.device = device
         self._model = None
@@ -232,7 +232,7 @@ class GRUEvgeniavolkovaEstimator:
             self._std,
             target_col=self.target_col,
             weight_col=self.weight_col,
-            aux_cols=EVGENIAVOLKOVA_AUX_COLUMNS,
+            aux_cols=GRU_AUX_COLUMNS,
         )
 
     def _train_day(self, df_day: pl.DataFrame, optimizer) -> float:
@@ -248,7 +248,7 @@ class GRUEvgeniavolkovaEstimator:
         optimizer.zero_grad(set_to_none=True)
         out_y, out_aux, _ = self._model(xb, None)
         loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
-        for i in range(len(EVGENIAVOLKOVA_AUX_COLUMNS)):
+        for i in range(len(GRU_AUX_COLUMNS)):
             loss = loss + _weighted_r2_loss(
                 out_aux[:, :, i].flatten(), auxb[:, :, i].flatten(), wb.flatten()
             )
@@ -311,7 +311,7 @@ class GRUEvgeniavolkovaEstimator:
             np.concatenate(y_parts), np.concatenate(preds_parts), np.concatenate(w_parts)
         )
 
-    def fit(self, df_train: pl.DataFrame, df_valid: pl.DataFrame | None = None) -> "GRUEvgeniavolkovaEstimator":
+    def fit(self, df_train: pl.DataFrame, df_valid: pl.DataFrame | None = None) -> "GRUEstimator":
         import torch
 
         self._seed()
@@ -334,7 +334,7 @@ class GRUEvgeniavolkovaEstimator:
             else:
                 score = -float(np.mean(losses))
             print(
-                f"[js2024] gru_evgeniavolkova epoch={epoch} "
+                f"[js2024] gru epoch={epoch} "
                 f"loss={np.mean(losses):.6f} valid_R2={score:.6f}"
             )
             if score > best_score:
@@ -350,9 +350,9 @@ class GRUEvgeniavolkovaEstimator:
             self._model.load_state_dict(best_state)
         return self
 
-    def update(self, df_new: pl.DataFrame) -> "GRUEvgeniavolkovaEstimator":
+    def update(self, df_new: pl.DataFrame) -> "GRUEstimator":
         if self._model is None:
-            raise RuntimeError("GRUEvgeniavolkovaEstimator.update called before fit().")
+            raise RuntimeError("GRUEstimator.update called before fit().")
         if df_new.height == 0 or float(self.params["lr_refit"]) <= 0:
             return self
         import torch
@@ -380,6 +380,6 @@ class GRUEvgeniavolkovaEstimator:
 
     def predict(self, df: pl.DataFrame) -> np.ndarray:
         if self._model is None:
-            raise RuntimeError("GRUEvgeniavolkovaEstimator.predict called before fit().")
+            raise RuntimeError("GRUEstimator.predict called before fit().")
         parts = [self._predict_day_with_model(self._model, df_day) for df_day in self._iter_days(df)]
         return np.concatenate(parts)
