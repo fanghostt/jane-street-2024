@@ -1,0 +1,52 @@
+# TEMPLATE — GRU V0 config-driven walk-forward (js2024-run-experiment).
+#
+# Reference/documentation only. Copy into `configs/` and trim to the keys you
+# actually vary before running; the runner is pointed at the copy, not at this file.
+#
+# Sequence model over per-symbol_id lookback windows, behind the same
+# fit/update/predict interface and the same engine as the LightGBM baseline, so the
+# weighted zero-mean R² is directly comparable. Unlike LightGBM, GRU's `incremental`
+# variant is a single fine-tune (no second-level `update_methods` taxonomy): it runs
+# as one `gru_incremental` row.
+
+model: gru
+variants: [full, incremental]   # walk-forward variants (model-agnostic)
+
+train_path: data/raw/train.parquet
+output_dir: outputs
+model_dir: models
+
+# Date range. start_date_id=700 matches the evgeniavolkova parity baseline;
+# null = no bound.
+start_date_id: 700
+end_date_id: null
+
+# Fixed trailing TEST block (scored, shared by both variants).
+test_days: 200
+# Early-stopping holdout carved from the TRAIN tail (never the test block).
+valid_days: 200
+gap_days: 0
+# Fine-tune cadence for gru_incremental (days between updates).
+update_cadence: 1
+
+# Model.
+random_state: 42
+device: auto          # "auto" uses CUDA when available, else CPU; or "cpu"/"cuda".
+include_time: false   # add `time_id` as a model input alongside the 79 features.
+seq_len: 16           # per-symbol lookback window length.
+hidden_size: 64
+num_layers: 1
+dropout: 0.0          # only applied between stacked layers (num_layers > 1).
+lr: 0.001
+weight_decay: 0.0
+epochs: 20
+batch_size: 1024
+early_stopping_rounds: 5
+finetune_epochs: 1    # gradient passes per online update.
+finetune_lr: 0.0005   # learning rate for the online fine-tune.
+
+# Window materialization. "auto" materializes for small frames and streams by date
+# once the window tensor would exceed max_materialized_windows_gib; force with
+# "materialize" / "stream".
+train_mode: auto
+max_materialized_windows_gib: 8.0

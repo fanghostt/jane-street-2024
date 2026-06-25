@@ -1,0 +1,34 @@
+# GRU V0 walk-forward run. See configs/templates/gru.yaml for the documented
+# template. `incremental` runs a single fine-tune (gru_incremental).
+model: gru
+variants: [full, incremental]
+
+train_path: data/raw/train.parquet
+output_dir: outputs
+model_dir: models
+
+start_date_id: 700
+end_date_id: null
+
+test_days: 200
+valid_days: 200
+gap_days: 0
+update_cadence: 1
+
+random_state: 42
+device: auto
+include_time: false
+seq_len: 16
+hidden_size: 64
+num_layers: 1
+dropout: 0.0
+lr: 0.001
+weight_decay: 0.0
+epochs: 20
+batch_size: 1024
+early_stopping_rounds: 5
+finetune_epochs: 1
+finetune_lr: 0.0005
+
+train_mode: auto
+max_materialized_windows_gib: 8.0

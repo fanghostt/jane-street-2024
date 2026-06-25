@@ -28,7 +28,8 @@ update_cadence: 1
 refit_decay: 0.9
 continue_rounds: 10
 
-# Model hyperparameters.
+# Model hyperparameters. GPU/OpenCL is the default backend for full LGBM runs on
+# this workstation; max_bin=255 matched/exceeded the CPU baseline in full tests.
 random_state: 42
 n_estimators: 3000
 learning_rate: 0.03
@@ -36,3 +37,6 @@ num_leaves: 64
 subsample: 0.8
 colsample_bytree: 0.8
 early_stopping_rounds: 100
+device_type: gpu
+max_bin: 255
+gpu_use_dp: false

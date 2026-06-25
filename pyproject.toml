@@ -14,6 +14,7 @@ dependencies = [
     "pyyaml",
     "tqdm",
     "kaggle",
+    "torch",
 ]
 
 [project.scripts]
@@ -24,6 +25,7 @@ js2024-make-smoke-data = "js2024.data.make_smoke_data:main"
 js2024-data-profile = "js2024.data.data_profile:main"
 js2024-run-lgbm-split-experiments = "js2024.runners.run_lgbm_split_experiments:main"
 js2024-run-incremental-vs-full = "js2024.runners.run_incremental_vs_full:main"
+js2024-run-experiment = "js2024.runners.run_experiment:main"
 js2024-data-semantics-audit = "js2024.data.data_semantics_audit:main"
 
 [dependency-groups]

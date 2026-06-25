@@ -44,6 +44,7 @@ from typing import Any
 import polars as pl
 
 from ..modeling.config import LGBMConfig, load_lgbm_config, resolve_project_path, validate_lgbm_config
+from ..modeling.experiments import timestamped_run_dir, write_manifest
 from ..data.data import (
     TARGET_COLUMN,
     WEIGHT_COLUMN,
@@ -69,6 +70,9 @@ def _lgbm_params(config: LGBMConfig) -> dict[str, Any]:
         "num_leaves": config.num_leaves,
         "subsample": config.subsample,
         "colsample_bytree": config.colsample_bytree,
+        "device_type": config.device_type,
+        "max_bin": config.max_bin,
+        "gpu_use_dp": config.gpu_use_dp,
         "random_state": config.random_state,
     }
 
@@ -332,8 +336,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Sweep mode: comma list of retrain cadences, e.g. '100,50,25'. When set, "
         "runs full + retrain at each cadence (ignores --methods).",
     )
-    parser.add_argument("--out-dir", default="experiments/incremental_vs_full/lgbm_v0")
-    parser.add_argument("--docs-out", default="experiments/incremental_vs_full/lgbm_v0/report.md")
+    parser.add_argument("--out-dir", default=None)
+    parser.add_argument("--docs-out", default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--n-estimators", type=int, default=None)
     parser.add_argument("--early-stopping-rounds", type=int, default=None)
@@ -380,7 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         print("[js2024] Dry run: no training performed.")
         return 0
 
-    out_dir = resolve_project_path(args.out_dir)
+    default_out_dir = timestamped_run_dir("experiments/incremental_vs_full/lgbm_v0")
+    out_dir = resolve_project_path(args.out_dir or default_out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -407,7 +412,16 @@ def main(argv: list[str] | None = None) -> int:
     _write_summary_csv(rows, out_dir / "summary.csv")
     print(f"\n[js2024] Wrote {out_dir / 'summary.csv'}")
 
-    docs_path = resolve_project_path(args.docs_out)
+    write_manifest(
+        out_dir / "manifest.json",
+        runner="js2024-run-incremental-vs-full",
+        config=args.config,
+        specs=[{"label": lb, "method": method, "cadence": cad} for lb, method, cad in specs],
+        out_dir=str(out_dir),
+    )
+    print(f"[js2024] Wrote {out_dir / 'manifest.json'}")
+
+    docs_path = resolve_project_path(args.docs_out or (out_dir / "report.md"))
     docs_path.parent.mkdir(parents=True, exist_ok=True)
     docs_path.write_text(render_docs(bundle, config, "completed"), encoding="utf-8")
     print(f"[js2024] Wrote experiment doc -> {docs_path}")
