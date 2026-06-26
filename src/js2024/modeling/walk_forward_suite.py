@@ -24,11 +24,14 @@ never feeds a test day's labels to ``update`` before that day is predicted.
 
 from __future__ import annotations
 
+import dataclasses
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
+from . import tracking
 from ..data.data import TARGET_COLUMN, WEIGHT_COLUMN, get_date_id_range
 from .validation import build_holdout_split, filter_by_date_range, summarize_date_split
 from .walk_forward import WalkForwardResult, walk_forward_evaluate
@@ -68,6 +71,12 @@ def validate_variants(variants: list[str]) -> list[str]:
             f"unknown variant(s) {bad}; choose from {sorted(VARIANT_MODES)}"
         )
     return variants
+
+
+def _wandb_config(config: Any, *, variant: str, cadence: int) -> dict[str, Any]:
+    """Flatten a config dataclass into a wandb-loggable dict + run context."""
+    base = dataclasses.asdict(config) if dataclasses.is_dataclass(config) else {}
+    return {**base, "variant": variant, "cadence": cadence}
 
 
 def run_walk_forward_suite(
@@ -120,17 +129,39 @@ def run_walk_forward_suite(
         for sub_label, est in runs:
             label = f"{spec.name}_{sub_label}"
             print(f"\n[js2024] === {label} (cadence={cadence}) ===")
-            est.fit(train_df, valid_df)
-            results[label] = walk_forward_evaluate(
-                est, df, test_start, test_end,
-                mode=mode, update_cadence=max(cadence, 1),
-                target_col=TARGET_COLUMN, weight_col=WEIGHT_COLUMN,
-            )
+            wandb_config = _wandb_config(config, variant=sub_label, cadence=cadence)
+            with tracking.run(
+                getattr(config, "use_wandb", False),
+                project=getattr(config, "wandb_project", "js2024"),
+                name=label,
+                group=spec.name,
+                config=wandb_config,
+            ):
+                fit_t0 = time.perf_counter()
+                est.fit(train_df, valid_df)
+                fit_secs = time.perf_counter() - fit_t0
+                eval_t0 = time.perf_counter()
+                results[label] = walk_forward_evaluate(
+                    est, df, test_start, test_end,
+                    mode=mode, update_cadence=max(cadence, 1),
+                    target_col=TARGET_COLUMN, weight_col=WEIGHT_COLUMN,
+                )
+                eval_secs = time.perf_counter() - eval_t0
+                res = results[label]
+                tracking.log(
+                    {
+                        "test_R2": res.score,
+                        "n_updates": res.n_updates,
+                        "fit_secs": fit_secs,
+                        "eval_secs": eval_secs,
+                    }
+                )
             cadence_used[label] = cadence
             labels.append(label)
             print(
                 f"[js2024] {label}: R²={results[label].score:.6f} "
-                f"(updates={results[label].n_updates})"
+                f"(updates={results[label].n_updates}) "
+                f"fit={fit_secs:.1f}s eval={eval_secs:.1f}s"
             )
 
     return SuiteBundle(

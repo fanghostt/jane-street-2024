@@ -8,6 +8,7 @@ online fine-tuning uses a smaller learning rate.
 
 from __future__ import annotations
 
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -15,6 +16,7 @@ import numpy as np
 import polars as pl
 
 from ..data.data import FEATURE_COLUMNS, TARGET_COLUMN, WEIGHT_COLUMN
+from . import tracking
 from .features import fit_feature_standardizer
 from .metrics import weighted_zero_mean_r2
 
@@ -280,6 +282,7 @@ GRU_DEFAULT_PARAMS: dict[str, Any] = {
     "early_stopping_patience": 1,
     "weight_decay": 0.01,
     "grad_clip": 1.0,
+    "use_amp": False,      # bf16 autocast (+TF32) on CUDA; ~1.5x faster, off by default.
 }
 
 
@@ -313,6 +316,16 @@ class GRUEstimator:
         if self.device == "auto":
             return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         return torch.device(self.device)
+
+    def _autocast(self):
+        """bf16 autocast on CUDA when ``use_amp`` is set, else a no-op context."""
+        import contextlib
+
+        import torch
+
+        if self.params.get("use_amp") and self._torch_device().type == "cuda":
+            return torch.autocast("cuda", dtype=torch.bfloat16)
+        return contextlib.nullcontext()
 
     def _seed(self) -> None:
         import torch
@@ -349,12 +362,13 @@ class GRUEstimator:
         wb = torch.from_numpy(w).to(device)
         self._model.train()
         optimizer.zero_grad(set_to_none=True)
-        out_y, out_aux, _ = self._model(xb, None)
-        loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
-        for i in range(len(GRU_AUX_COLUMNS)):
-            loss = loss + _weighted_r2_loss(
-                out_aux[:, :, i].flatten(), auxb[:, :, i].flatten(), wb.flatten()
-            )
+        with self._autocast():
+            out_y, out_aux, _ = self._model(xb, None)
+            loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
+            for i in range(len(GRU_AUX_COLUMNS)):
+                loss = loss + _weighted_r2_loss(
+                    out_aux[:, :, i].flatten(), auxb[:, :, i].flatten(), wb.flatten()
+                )
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
             self._model.parameters(), max_norm=float(self.params["grad_clip"])
@@ -369,9 +383,9 @@ class GRUEstimator:
         x, _, _, _ = self._day(df_day)
         xb = torch.from_numpy(x).to(device)
         model.eval()
-        with torch.no_grad():
+        with torch.no_grad(), self._autocast():
             preds, _, _ = model(xb, None)
-        return preds.swapaxes(0, 1).reshape(-1).detach().cpu().numpy().astype(np.float64)
+        return preds.float().swapaxes(0, 1).reshape(-1).detach().cpu().numpy().astype(np.float64)
 
     def _score(self, df: pl.DataFrame, *, online_update: bool) -> float:
         import torch
@@ -403,8 +417,9 @@ class GRUEstimator:
                 wb = torch.from_numpy(w).to(device)
                 model.train()
                 optimizer.zero_grad(set_to_none=True)
-                out_y, _, _ = model(xb, None)
-                loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
+                with self._autocast():
+                    out_y, _, _ = model(xb, None)
+                    loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), max_norm=float(self.params["grad_clip"])
@@ -418,6 +433,10 @@ class GRUEstimator:
         import torch
 
         self._seed()
+        if self.params.get("use_amp"):
+            # TF32 matmuls/cuDNN are a free win alongside bf16 autocast on Ampere+.
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
         self._mean, self._std = fit_feature_standardizer(df_train, self.feature_cols)
         self._model = _build_model(len(self.feature_cols), self.params).to(self._torch_device())
         optimizer = torch.optim.AdamW(
@@ -431,14 +450,29 @@ class GRUEstimator:
         bad = 0
         patience = int(self.params["early_stopping_patience"])
         for epoch in range(1, int(self.params["epochs"]) + 1):
+            epoch_t0 = time.perf_counter()
             losses = [self._train_day(df_day, optimizer) for df_day in self._iter_days(df_train)]
+            train_secs = time.perf_counter() - epoch_t0
             if df_valid is not None and df_valid.height > 0:
                 score = self._score(df_valid, online_update=True)
             else:
                 score = -float(np.mean(losses))
+            epoch_secs = time.perf_counter() - epoch_t0
+            train_loss = float(np.mean(losses))
             print(
                 f"[js2024] {self.params['model_type']} epoch={epoch} "
-                f"loss={np.mean(losses):.6f} valid_R2={score:.6f}"
+                f"loss={train_loss:.6f} valid_R2={score:.6f} "
+                f"time={epoch_secs:.1f}s"
+            )
+            tracking.log(
+                {
+                    "epoch": epoch,
+                    "train_loss": train_loss,
+                    "valid_R2": score,
+                    "epoch_secs": epoch_secs,
+                    "train_secs": train_secs,
+                },
+                step=epoch,
             )
             if score > best_score:
                 best_score = score
@@ -472,8 +506,9 @@ class GRUEstimator:
             wb = torch.from_numpy(w).to(self._torch_device())
             self._model.train()
             optimizer.zero_grad(set_to_none=True)
-            out_y, _, _ = self._model(xb, None)
-            loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
+            with self._autocast():
+                out_y, _, _ = self._model(xb, None)
+                loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
                 self._model.parameters(), max_norm=float(self.params["grad_clip"])

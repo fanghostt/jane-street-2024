@@ -30,3 +30,6 @@ venv/
 # Env / misc
 .env
 .DS_Store
+
+# Weights & Biases run artifacts
+wandb/

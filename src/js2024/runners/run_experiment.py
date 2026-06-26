@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import sys
+import time
 from typing import Any
 
 import polars as pl
@@ -101,8 +102,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         print(f"[js2024] Loading {spec.name} frame ...")
+        load_t0 = time.perf_counter()
         df = spec.load_frame(config, feature_cols)
-        print(f"[js2024] Shared frame: {df.height:,} rows.")
+        load_secs = time.perf_counter() - load_t0
+        print(f"[js2024] Shared frame: {df.height:,} rows (load {load_secs:.1f}s).")
         bundle = run_walk_forward_suite(
             spec, config, df, variants=variants, feature_cols=feature_cols
         )

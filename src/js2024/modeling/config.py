@@ -210,6 +210,15 @@ class GRUConfig:
     early_stopping_patience: int = 1
     weight_decay: float = 0.01
     grad_clip: float = 1.0
+    # Optional Weights & Biases tracking. Off by default; when True the suite
+    # opens one run per variant and the training loop logs per-epoch metrics.
+    # See js2024.modeling.tracking (offline-safe when unauthenticated).
+    use_wandb: bool = False
+    wandb_project: str = "js2024"
+    # When True, run the day-batch forward/backward under bf16 autocast (+TF32)
+    # on CUDA. ~1.5x faster on Blackwell GPUs; slightly changes numerics, so it
+    # is off by default to keep recorded baselines bit-reproducible.
+    use_amp: bool = False
 
 
 def validate_gru_config(config: GRUConfig) -> GRUConfig:
@@ -294,6 +303,7 @@ def gru_params(config: GRUConfig) -> dict[str, Any]:
         "early_stopping_patience": config.early_stopping_patience,
         "weight_decay": config.weight_decay,
         "grad_clip": config.grad_clip,
+        "use_amp": config.use_amp,
     }
 
 
@@ -325,5 +335,8 @@ def load_gru_config(path: str | Path) -> GRUConfig:
         early_stopping_patience=int(raw.get("early_stopping_patience", 1)),
         weight_decay=float(raw.get("weight_decay", 0.01)),
         grad_clip=float(raw.get("grad_clip", 1.0)),
+        use_wandb=bool(raw.get("use_wandb", False)),
+        wandb_project=str(raw.get("wandb_project", "js2024")),
+        use_amp=bool(raw.get("use_amp", False)),
     )
     return validate_gru_config(config)

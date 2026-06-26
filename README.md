@@ -286,6 +286,20 @@ gitignored `experiments/` tree. To run a model side-by-side as a reference, poin
 the runner at that model's config (e.g. an `lgbm` config) — comparisons are made
 by running configs, not by special-casing one runner.
 
+Optional GRU config keys (all default off, so baselines are unaffected):
+
+- `use_wandb: true` (+ `wandb_project`) — log per-epoch loss / valid-R² / timing and
+  per-variant test-R² to Weights & Biases. Offline-safe: with no `wandb login` it
+  falls back to `offline` mode (sync later with `wandb sync`). See
+  `src/js2024/modeling/tracking.py`.
+- `use_amp: true` — run the day-batch forward/backward under bf16 autocast (+TF32) on
+  CUDA. ~1.5× faster per epoch on Blackwell GPUs at the cost of slightly perturbed
+  numerics, so keep it **off** for bit-reproducible baselines and on for fast
+  exploration.
+- `use_responder_lags: true` — append reconstructed D-1 responders
+  (`responder_i_lag_1`) to the inputs. **Tried and rejected** (it hurts the metric —
+  see `docs/experiments/lag_features_v1.md`); kept only as a recorded experiment.
+
 ## Tests
 
 ```bash
@@ -339,6 +353,12 @@ Console scripts (defined in `pyproject.toml`) are unchanged by the layout — e.
 
 ## Explicitly not implemented yet
 
-- Ensembling
+- Ensembling (the reference averages 2 architectures × 3 seeds)
 - Kaggle inference gateway / submission packaging
-- Full `evgeniavolkova/kagglejanestreet` parity
+- Full `evgeniavolkova/kagglejanestreet` parity. The remaining gap is **feature
+  engineering**, not the model: we already match its aux-target heads, online finetune
+  and architecture (single online GRU ≈ 0.0111, ≈ their 6-model ensemble LB 0.0112).
+  Missing inputs = cross-sectional **market averages** per `(date_id, time_id)` and
+  per-`symbol_id` **rolling statistics** over ~1000 time steps. This is the next
+  higher-leverage experiment. Simple D-1 responder lags were tried and **rejected**
+  (`docs/experiments/lag_features_v1.md`).

@@ -15,6 +15,7 @@ dependencies = [
     "tqdm",
     "kaggle",
     "torch",
+    "wandb>=0.28.0",
 ]
 
 [project.scripts]
