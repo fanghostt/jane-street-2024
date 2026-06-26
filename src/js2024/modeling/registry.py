@@ -70,20 +70,6 @@ class ModelSpec:
     incremental_runs: Callable[[Any, list[str]], list[tuple[str, Estimator]]] | None = None
 
 
-def _load_default_frame(config: Any, feature_cols: list[str]) -> pl.DataFrame:
-    """Load ids + features + target/weight for the configured date range."""
-    train_path = resolve_project_path(config.train_path)
-    validate_data_path(train_path)
-    columns = get_default_columns(include_target=True, include_weight=True)
-    return load_train_data(
-        train_path,
-        columns=columns,
-        start_date_id=config.start_date_id,
-        end_date_id=config.end_date_id,
-        collect=True,
-    )
-
-
 # --- GRU (day-batch, public-solution style) -------------------------------
 
 
@@ -207,7 +193,51 @@ def _tcn_describe(config: GRUConfig) -> list[str]:
 
 
 def _lgbm_features(config: LGBMConfig) -> list[str]:
-    return get_v0_feature_columns(include_symbol=True, include_time=True)
+    cols = get_v0_feature_columns(include_symbol=True, include_time=True)
+    if config.use_responder_lags:
+        cols = cols + get_lag_feature_columns()
+    cols = cols + selected_columns(
+        use_market_avg=config.use_market_avg,
+        use_symbol_rolling=config.use_symbol_rolling,
+    )
+    return cols
+
+
+def _load_lgbm_frame(config: LGBMConfig, feature_cols: list[str]) -> pl.DataFrame:
+    """Load ids + features + target/weight and apply the engineered features.
+
+    Mirrors :func:`js2024.modeling.train_lgbm` so the unified
+    ``js2024-run-experiment`` path consumes the same lag / market-avg /
+    per-symbol-rolling columns as the standalone ``js2024-train-lgbm`` CLI.
+    """
+    train_path = resolve_project_path(config.train_path)
+    validate_data_path(train_path)
+    columns = get_default_columns(include_target=True, include_weight=True)
+    if config.use_responder_lags:
+        # Need responder_0..8 to reconstruct the lags; de-dup since responder_6
+        # is already the target. The lag features (not the raw responders) are the
+        # model inputs.
+        columns = columns + [c for c in RESPONDER_COLUMNS if c not in columns]
+    df = load_train_data(
+        train_path,
+        columns=columns,
+        start_date_id=config.start_date_id,
+        end_date_id=config.end_date_id,
+        collect=True,
+    )
+    if config.use_responder_lags:
+        # Reconstruct D-1 responders as responder_i_lag_1 features (leakage-safe:
+        # the first date_id gets null lags). Done before the suite splits folds.
+        df = add_responder_lags_from_train(df)
+    # Engineered market-avg / per-symbol rolling features (leakage-safe; source
+    # columns are part of the standard feature set already loaded).
+    df = add_engineered_features(
+        df,
+        use_market_avg=config.use_market_avg,
+        use_symbol_rolling=config.use_symbol_rolling,
+        window=config.rolling_window,
+    )
+    return df
 
 
 def _make_lgbm(
@@ -257,11 +287,21 @@ def _lgbm_describe(config: LGBMConfig) -> list[str]:
         f"online methods `{methods}`" if config.update_methods is not None
         else f"online `update_method={config.update_method!r}`"
     )
+    eng = []
+    if config.use_responder_lags:
+        eng.append("D-1 responder lags")
+    if config.use_market_avg:
+        eng.append("cross-sectional market-avg")
+    if config.use_symbol_rolling:
+        eng.append(f"per-symbol rolling (window={config.rolling_window})")
+    inputs = "the V0 raw feature set (`symbol_id` + `time_id` as columns)"
+    if eng:
+        inputs += " + engineered: " + ", ".join(eng)
     return [
         f"LightGBM: `n_estimators={config.n_estimators}`, "
         f"`learning_rate={config.learning_rate}`, `num_leaves={config.num_leaves}`, "
         f"`device_type={config.device_type}`; {online}, cadence={config.update_cadence}.",
-        "inputs: the V0 raw feature set (`symbol_id` + `time_id` as columns).",
+        f"inputs: {inputs}.",
     ]
 
 
@@ -299,7 +339,7 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         load_config=load_lgbm_config,
         feature_columns=_lgbm_features,
         make_estimator=_make_lgbm,
-        load_frame=_load_default_frame,
+        load_frame=_load_lgbm_frame,
         describe=_lgbm_describe,
         incremental_runs=_lgbm_incremental_runs,
     ),
