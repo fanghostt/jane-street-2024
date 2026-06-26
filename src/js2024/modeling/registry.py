@@ -48,6 +48,7 @@ from .lag_features import (
     add_responder_lags_from_train,
     get_lag_feature_columns,
 )
+from .market_features import add_engineered_features, selected_columns
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,10 @@ def _gru_features(config: GRUConfig) -> list[str]:
     cols = get_gru_feature_columns(include_time=config.include_time)
     if config.use_responder_lags:
         cols = cols + get_lag_feature_columns()
+    cols = cols + selected_columns(
+        use_market_avg=config.use_market_avg,
+        use_symbol_rolling=config.use_symbol_rolling,
+    )
     return cols
 
 
@@ -158,6 +163,14 @@ def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
         # Add responder_i_lag_1 features (D-1 responders) after the aux targets so
         # the shift-based auxiliaries are computed on the raw responder columns.
         df = add_responder_lags_from_train(df)
+    # Engineered market-avg / per-symbol rolling features (leakage-safe; source
+    # columns are part of the standard feature set already loaded).
+    df = add_engineered_features(
+        df,
+        use_market_avg=config.use_market_avg,
+        use_symbol_rolling=config.use_symbol_rolling,
+        window=config.rolling_window,
+    )
     return df
 
 

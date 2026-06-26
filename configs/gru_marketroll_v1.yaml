@@ -1,0 +1,45 @@
+# GRU (day-batch) + engineered market-avg / per-symbol rolling features.
+# Same protocol/hyperparameters as gru_v0.yaml; the only difference is the added
+# engineered features (cross-sectional market average + trailing per-symbol
+# rolling mean/std for the 12 top-importance features; leakage-safe — see
+# js2024.modeling.market_features). Runs the `incremental` variant only — the
+# decisive metric where the GRU actually generalises (baseline 0.011139).
+model: gru
+variants: [incremental]
+
+train_path: data/raw/train.parquet
+
+start_date_id: 700
+end_date_id: null
+
+test_days: 200
+valid_days: 200
+gap_days: 0
+update_cadence: 1
+
+random_state: 42
+device: auto
+include_time: true
+
+# Engineered features (leakage-safe; see js2024.modeling.market_features).
+use_market_avg: true
+use_symbol_rolling: true
+rolling_window: 1000
+
+# Experiment tracking (offline-safe: writes to wandb/, sync later with `wandb sync`).
+use_wandb: true
+wandb_project: js2024-marketroll
+
+# fp32 (use_amp off) so the A/B stays comparable to the gru_v0 baselines.
+use_amp: false
+
+hidden_sizes: [500]
+dropout_rates: [0.3]
+hidden_sizes_linear: [500, 300]
+dropout_rates_linear: [0.2, 0.1]
+lr: 0.0005
+lr_refit: 0.0003
+epochs: 1000
+early_stopping_patience: 1
+weight_decay: 0.01
+grad_clip: 1.0

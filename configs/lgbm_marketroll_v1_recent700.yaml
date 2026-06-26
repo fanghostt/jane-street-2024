@@ -1,0 +1,34 @@
+# LightGBM market-roll V1 — V0 recent700 baseline + engineered features.
+# Adds, for the 12 highest-importance V0 features, the cross-sectional market
+# average per (date_id, time_id) and the trailing per-symbol rolling mean/std
+# over `rolling_window` steps (see js2024.modeling.market_features). Both are
+# leakage-safe (market avg is contemporaneous; rolling is strictly trailing).
+# Identical data window and hyperparameters to lgbm_v0_recent700.yaml so the only
+# difference vs that baseline is the engineered features (clean A/B).
+
+train_path: data/raw/train.parquet
+output_dir: outputs
+model_dir: models
+
+start_date_id: 700
+end_date_id: null
+
+valid_days: 200
+gap_days: 0
+
+# Engineered features (leakage-safe; see js2024.modeling.market_features).
+use_market_avg: true
+use_symbol_rolling: true
+rolling_window: 1000
+
+# Model hyperparameters (identical to lgbm_v0_recent700.yaml).
+random_state: 42
+n_estimators: 3000
+learning_rate: 0.03
+num_leaves: 64
+subsample: 0.8
+colsample_bytree: 0.8
+early_stopping_rounds: 100
+device_type: gpu
+max_bin: 255
+gpu_use_dp: false

@@ -37,6 +37,7 @@ from .lag_features import (
     add_responder_lags_from_train,
     get_lag_feature_columns,
 )
+from .market_features import add_engineered_features, selected_columns
 from .metrics import weighted_zero_mean_r2
 from .reporting import write_lgbm_report
 from .validation import build_holdout_split, filter_by_date_range, summarize_date_split
@@ -100,6 +101,12 @@ def run(
         # added to the model inputs.
         columns = columns + [c for c in RESPONDER_COLUMNS if c not in columns]
         feature_cols = feature_cols + get_lag_feature_columns()
+    # Engineered market-avg / per-symbol rolling features (source columns are part
+    # of the standard 79 features, so no extra reads needed).
+    feature_cols = feature_cols + selected_columns(
+        use_market_avg=config.use_market_avg,
+        use_symbol_rolling=config.use_symbol_rolling,
+    )
 
     if df is None:
         train_path = resolve_project_path(config.train_path)
@@ -118,6 +125,14 @@ def run(
         # the first date_id gets null lags). Done before the split so train and
         # validation folds share the same engineered columns.
         df = add_responder_lags_from_train(df)
+    # Engineered market-avg / per-symbol rolling features (leakage-safe; before the
+    # split so train and validation folds share the same columns).
+    df = add_engineered_features(
+        df,
+        use_market_avg=config.use_market_avg,
+        use_symbol_rolling=config.use_symbol_rolling,
+        window=config.rolling_window,
+    )
 
     min_date, max_date = get_date_id_range(df)
     print(f"[js2024] Loaded {df.height:,} rows; date_id range [{min_date}, {max_date}]")

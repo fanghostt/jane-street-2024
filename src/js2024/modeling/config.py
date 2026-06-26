@@ -62,6 +62,11 @@ class LGBMConfig:
     # train frame and add them to the model inputs. Defaulted False so existing
     # V0 configs are unaffected. See js2024.modeling.lag_features.
     use_responder_lags: bool = False
+    # Engineered features (leakage-safe; see js2024.modeling.market_features).
+    # All default off so existing V0 configs are unaffected.
+    use_market_avg: bool = False        # cross-sectional <feature>_mkt per (date, time)
+    use_symbol_rolling: bool = False    # trailing per-symbol rolling mean/std
+    rolling_window: int = 1000
     # Walk-forward (incremental vs full) options; defaulted so existing YAMLs
     # and the other runners are unaffected.
     test_days: int = 200
@@ -164,6 +169,9 @@ def load_lgbm_config(path: str | Path) -> LGBMConfig:
         max_bin=int(raw.get("max_bin", 255)),
         gpu_use_dp=bool(raw.get("gpu_use_dp", False)),
         use_responder_lags=bool(raw.get("use_responder_lags", False)),
+        use_market_avg=bool(raw.get("use_market_avg", False)),
+        use_symbol_rolling=bool(raw.get("use_symbol_rolling", False)),
+        rolling_window=int(raw.get("rolling_window", 1000)),
         test_days=int(raw.get("test_days", 200)),
         update_method=str(raw.get("update_method", "refit")),
         update_methods=(
@@ -194,6 +202,10 @@ class GRUConfig:
     # When True, add reconstructed day-lagged responders (responder_i_lag_1) to
     # the GRU inputs. Defaulted False so existing GRU configs are unaffected.
     use_responder_lags: bool = False
+    # Engineered features (leakage-safe; see js2024.modeling.market_features).
+    use_market_avg: bool = False        # cross-sectional <feature>_mkt per (date, time)
+    use_symbol_rolling: bool = False    # trailing per-symbol rolling mean/std
+    rolling_window: int = 1000
     device: str = "auto"
     # Sequence backbone: gru/lstm (recurrent), transformer (causal attention),
     # tcn (causal dilated conv). All share the day-batch + aux-head protocol.
@@ -321,6 +333,9 @@ def load_gru_config(path: str | Path) -> GRUConfig:
         update_cadence=int(raw.get("update_cadence", 1)),
         include_time=bool(raw.get("include_time", True)),
         use_responder_lags=bool(raw.get("use_responder_lags", False)),
+        use_market_avg=bool(raw.get("use_market_avg", False)),
+        use_symbol_rolling=bool(raw.get("use_symbol_rolling", False)),
+        rolling_window=int(raw.get("rolling_window", 1000)),
         device=str(raw.get("device", "auto")),
         model_type=str(raw.get("model_type", "gru")),
         num_heads=int(raw.get("num_heads", 5)),
