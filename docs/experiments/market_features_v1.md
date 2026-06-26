@@ -7,8 +7,10 @@ families (see `src/js2024/modeling/market_features.py`), behind the config flags
 - **cross-sectional market average** `<feature>_mkt` — per `(date_id, time_id)` mean of a
   feature across symbols (what the rest of the universe is doing right now);
 - **per-symbol trailing rolling mean/std** `<feature>_roll_mean` / `_roll_std` over the last
-  `rolling_window` (=1000) time steps within each `symbol_id` (causal, shifted so the current
-  row is excluded).
+  `rolling_window` (=1000) time steps within each `symbol_id`. The window ends at the current
+  row (inclusive) and never reads the future — leakage-safe because the current row's
+  `feature_*` is already available at prediction time. (Not `.shift(1)`; if you wanted a
+  strictly history-only window excluding the current value you would shift first.)
 
 Applied to the 12 top-importance features. A/B'd against the matching baselines (recent700
 window, shared last-200 test block `[1499, 1698]`): `lgbm_marketroll_v1_recent700` vs
