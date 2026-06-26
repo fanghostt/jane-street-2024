@@ -66,9 +66,10 @@ def test_end_to_end_training(tmp_path, write_train):
     rc = main(["--config", str(cfg)])
     assert rc == 0
 
-    model_path = tmp_path / "models" / "lgbm_v0.txt"
-    oof_path = tmp_path / "outputs" / "oof" / "lgbm_v0_valid_predictions.parquet"
-    report_path = tmp_path / "outputs" / "reports" / "lgbm_v0_report.md"
+    # Artifacts are named after the config file stem (config.yaml -> "config").
+    model_path = tmp_path / "models" / "config.txt"
+    oof_path = tmp_path / "outputs" / "oof" / "config_valid_predictions.parquet"
+    report_path = tmp_path / "outputs" / "reports" / "config_report.md"
     assert model_path.exists()
     assert oof_path.exists()
     assert report_path.exists()

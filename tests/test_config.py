@@ -59,6 +59,18 @@ def test_recent700_config_defaults_to_gpu():
     assert cfg.gpu_use_dp is False
 
 
+def test_use_responder_lags_defaults_false():
+    cfg = load_lgbm_config(PROJECT_ROOT / "configs" / "lgbm_v0_recent700.yaml")
+    assert cfg.use_responder_lags is False
+
+
+def test_lags_v1_config_enables_responder_lags():
+    cfg = load_lgbm_config(PROJECT_ROOT / "configs" / "lgbm_lags_v1_recent700.yaml")
+    assert cfg.use_responder_lags is True
+    assert cfg.start_date_id == 700
+    assert cfg.valid_days == 200
+
+
 def test_gru_config_loads():
     cfg = load_gru_config(PROJECT_ROOT / "configs" / "gru_v0.yaml")
     assert cfg.train_path == "data/raw/train.parquet"

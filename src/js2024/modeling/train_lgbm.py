@@ -32,6 +32,11 @@ from ..data.data import (
     validate_data_path,
 )
 from .features import get_v0_feature_columns, prepare_lgbm_frame
+from .lag_features import (
+    RESPONDER_COLUMNS,
+    add_responder_lags_from_train,
+    get_lag_feature_columns,
+)
 from .metrics import weighted_zero_mean_r2
 from .reporting import write_lgbm_report
 from .validation import build_holdout_split, filter_by_date_range, summarize_date_split
@@ -89,6 +94,12 @@ def run(
     feature_cols = get_v0_feature_columns(include_symbol=True, include_time=True)
     # Columns we must read: ids + features + target + weight.
     columns = get_default_columns(include_target=True, include_weight=True)
+    if config.use_responder_lags:
+        # Need responder_0..8 to reconstruct the lags; de-dup since responder_6
+        # is already the target. The lag features (not the raw responders) are
+        # added to the model inputs.
+        columns = columns + [c for c in RESPONDER_COLUMNS if c not in columns]
+        feature_cols = feature_cols + get_lag_feature_columns()
 
     if df is None:
         train_path = resolve_project_path(config.train_path)
@@ -102,6 +113,12 @@ def run(
             end_date_id=config.end_date_id,
             collect=True,
         )
+    if config.use_responder_lags:
+        # Reconstruct D-1 responders as responder_i_lag_1 features (leakage-safe:
+        # the first date_id gets null lags). Done before the split so train and
+        # validation folds share the same engineered columns.
+        df = add_responder_lags_from_train(df)
+
     min_date, max_date = get_date_id_range(df)
     print(f"[js2024] Loaded {df.height:,} rows; date_id range [{min_date}, {max_date}]")
 
@@ -218,7 +235,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = load_lgbm_config(args.config)
-        run(config)
+        # Name artifacts after the config file so different configs (e.g.
+        # lgbm_v0_recent700 vs lgbm_lags_v1_recent700) don't overwrite each other.
+        run(config, run_name=Path(args.config).stem)
     except (FileNotFoundError, ValueError, KeyError) as exc:
         # Clean, actionable message instead of a traceback for the common
         # config / data errors (missing file, bad hyperparameter, missing

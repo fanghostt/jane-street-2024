@@ -43,6 +43,11 @@ from .gru import (
     add_gru_aux_targets,
     get_gru_feature_columns,
 )
+from .lag_features import (
+    RESPONDER_COLUMNS,
+    add_responder_lags_from_train,
+    get_lag_feature_columns,
+)
 
 
 @dataclass(frozen=True)
@@ -82,7 +87,10 @@ def _load_default_frame(config: Any, feature_cols: list[str]) -> pl.DataFrame:
 
 
 def _gru_features(config: GRUConfig) -> list[str]:
-    return get_gru_feature_columns(include_time=config.include_time)
+    cols = get_gru_feature_columns(include_time=config.include_time)
+    if config.use_responder_lags:
+        cols = cols + get_lag_feature_columns()
+    return cols
 
 
 def _make_seq(
@@ -116,11 +124,20 @@ def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
     validate_data_path(train_path)
     available = set(scan_train_data(train_path).collect_schema().names())
     aux_source_cols = [c for c in ("responder_7", "responder_8") if c in available]
+    # Lag reconstruction needs all 9 responders; merge with the aux sources and
+    # the target (responder_6, already requested) so we only request each once.
+    already_requested = set(aux_source_cols) | {TARGET_COLUMN}
+    lag_source_cols = (
+        [c for c in RESPONDER_COLUMNS if c in available and c not in already_requested]
+        if config.use_responder_lags
+        else []
+    )
     columns = (
         ["date_id", "time_id", "symbol_id"]
         + list(FEATURE_COLUMNS)
         + [WEIGHT_COLUMN, TARGET_COLUMN]
         + aux_source_cols
+        + lag_source_cols
     )
     df = load_train_data(
         train_path,
@@ -136,7 +153,12 @@ def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
                 "as a smoke-only auxiliary placeholder."
             )
             df = df.with_columns(pl.col(TARGET_COLUMN).alias(aux_col))
-    return add_gru_aux_targets(df)
+    df = add_gru_aux_targets(df)
+    if config.use_responder_lags:
+        # Add responder_i_lag_1 features (D-1 responders) after the aux targets so
+        # the shift-based auxiliaries are computed on the raw responder columns.
+        df = add_responder_lags_from_train(df)
+    return df
 
 
 def _make_transformer(config: GRUConfig, feature_cols: list[str]) -> GRUEstimator:
