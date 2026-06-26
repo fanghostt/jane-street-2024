@@ -5,6 +5,15 @@
 # leakage-safe (market avg is contemporaneous; rolling is strictly trailing).
 # Identical data window and hyperparameters to lgbm_v0_recent700.yaml so the only
 # difference vs that baseline is the engineered features (clean A/B).
+#
+# Drives both CLIs: `js2024-train-lgbm` (single holdout via valid_days/gap_days)
+# and `js2024-run-experiment` (walk-forward full/incremental via the model/
+# variants/test_days/update_* keys below). The latter now consumes the same
+# engineered features (see js2024.modeling.registry._load_lgbm_frame).
+
+# Config-driven walk-forward (js2024-run-experiment); ignored by js2024-train-lgbm.
+model: lgbm
+variants: [full, incremental]
 
 train_path: data/raw/train.parquet
 output_dir: outputs
@@ -13,8 +22,19 @@ model_dir: models
 start_date_id: 700
 end_date_id: null
 
+# Fixed trailing TEST block scored by run-experiment (every variant shares it).
+test_days: 200
+
+# Early-stopping holdout from the TRAIN tail (also the train-lgbm holdout).
 valid_days: 200
 gap_days: 0
+
+# Online taxonomy: the `incremental` variant expands into one named run per
+# method (lgbm_refit / lgbm_continue / lgbm_retrain). train-lgbm ignores these.
+update_methods: [refit, continue, retrain]
+update_cadence: 1
+refit_decay: 0.9
+continue_rounds: 10
 
 # Engineered features (leakage-safe; see js2024.modeling.market_features).
 use_market_avg: true
