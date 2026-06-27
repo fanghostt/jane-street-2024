@@ -22,6 +22,30 @@ from .metrics import weighted_zero_mean_r2
 
 GRU_AUX_COLUMNS = ["responder_10", "responder_9", "responder_8", "responder_7"]
 
+# Named auxiliary-target sets selectable via the `aux_target_set` config key. Each
+# value is the ordered list of responder columns trained as auxiliary heads (a
+# final linear head combines them into the target). `base4` reuses GRU_AUX_COLUMNS
+# verbatim so the default reproduces the public-solution behaviour bit-for-bit.
+# responder_9/10 are synthetic (see add_gru_aux_targets); the real responders are
+# responder_0..8.
+GRU_AUX_TARGET_SETS: dict[str, list[str]] = {
+    "base4": list(GRU_AUX_COLUMNS),
+    "target_family": ["responder_6", "responder_7", "responder_8", "responder_9", "responder_10"],
+    "all9": [f"responder_{i}" for i in range(9)],
+    "all11": [f"responder_{i}" for i in range(11)],
+}
+
+
+def resolve_gru_aux_targets(name: str) -> list[str]:
+    """Map an ``aux_target_set`` name to its ordered auxiliary-responder list."""
+    try:
+        return list(GRU_AUX_TARGET_SETS[name])
+    except KeyError:
+        known = ", ".join(GRU_AUX_TARGET_SETS)
+        raise ValueError(
+            f"unknown aux_target_set {name!r}; choose from {known}"
+        ) from None
+
 
 def get_gru_feature_columns(include_time: bool = True) -> list[str]:
     """Public-solution-style raw inputs: all features except 09-11, plus time_id."""
@@ -201,7 +225,7 @@ def _ensure_layer_classes() -> None:
         _RNNLayer, _TransformerLayer, _TCNLayer = _seq_layer_classes()
 
 
-def _build_model(n_features: int, params: dict[str, Any]):
+def _build_model(n_features: int, params: dict[str, Any], n_aux: int):
     import torch.nn as nn
 
     _ensure_layer_classes()
@@ -248,8 +272,8 @@ def _build_model(n_features: int, params: dict[str, Any]):
     class ModelR(nn.Module):
         def __init__(self) -> None:
             super().__init__()
-            self.heads = nn.ModuleList([ModelRBase() for _ in GRU_AUX_COLUMNS])
-            self.out = nn.Linear(len(GRU_AUX_COLUMNS), 1)
+            self.heads = nn.ModuleList([ModelRBase() for _ in range(n_aux)])
+            self.out = nn.Linear(n_aux, 1)
 
         def forward(self, x, hidden=None):
             if hidden is None:
@@ -262,7 +286,7 @@ def _build_model(n_features: int, params: dict[str, Any]):
                 next_hidden.append(h)
             aux = __import__("torch").cat(aux_preds, dim=1)
             y = self.out(aux).reshape(x.shape[0], x.shape[1])
-            aux = aux.reshape(x.shape[0], x.shape[1], len(GRU_AUX_COLUMNS))
+            aux = aux.reshape(x.shape[0], x.shape[1], n_aux)
             return y, aux, next_hidden
 
     return ModelR()
@@ -296,12 +320,16 @@ class GRUEstimator:
         target_col: str = TARGET_COLUMN,
         weight_col: str = WEIGHT_COLUMN,
         params: dict[str, Any] | None = None,
+        aux_cols: list[str] | None = None,
         random_state: int = 42,
         device: str = "auto",
     ) -> None:
         self.feature_cols = list(feature_cols)
         self.target_col = target_col
         self.weight_col = weight_col
+        # Auxiliary responder columns trained as extra heads; defaults to the
+        # public-solution base4 set so callers that omit it keep prior behaviour.
+        self.aux_cols = list(aux_cols) if aux_cols is not None else list(GRU_AUX_COLUMNS)
         self.params = {**GRU_DEFAULT_PARAMS, **(params or {})}
         self.random_state = int(random_state)
         self.device = device
@@ -348,7 +376,7 @@ class GRUEstimator:
             self._std,
             target_col=self.target_col,
             weight_col=self.weight_col,
-            aux_cols=GRU_AUX_COLUMNS,
+            aux_cols=self.aux_cols,
         )
 
     def _train_day(self, df_day: pl.DataFrame, optimizer) -> float:
@@ -365,7 +393,7 @@ class GRUEstimator:
         with self._autocast():
             out_y, out_aux, _ = self._model(xb, None)
             loss = _weighted_r2_loss(out_y.flatten(), yb.flatten(), wb.flatten())
-            for i in range(len(GRU_AUX_COLUMNS)):
+            for i in range(len(self.aux_cols)):
                 loss = loss + _weighted_r2_loss(
                     out_aux[:, :, i].flatten(), auxb[:, :, i].flatten(), wb.flatten()
                 )
@@ -438,7 +466,9 @@ class GRUEstimator:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
         self._mean, self._std = fit_feature_standardizer(df_train, self.feature_cols)
-        self._model = _build_model(len(self.feature_cols), self.params).to(self._torch_device())
+        self._model = _build_model(
+            len(self.feature_cols), self.params, len(self.aux_cols)
+        ).to(self._torch_device())
         optimizer = torch.optim.AdamW(
             self._model.parameters(),
             lr=float(self.params["lr"]),

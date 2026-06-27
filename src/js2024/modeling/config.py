@@ -215,6 +215,10 @@ class GRUConfig:
     model_type: str = "gru"
     num_heads: int = 5      # transformer only; each hidden_size must divide evenly.
     kernel_size: int = 3    # tcn only; causal conv kernel width.
+    # Auxiliary-target set: which responder columns become aux heads (see
+    # js2024.modeling.gru.GRU_AUX_TARGET_SETS). Defaults to the public-solution
+    # base4 so existing GRU configs are unaffected.
+    aux_target_set: str = "base4"
     hidden_sizes: list[int] | None = None
     dropout_rates: list[float] | None = None
     hidden_sizes_linear: list[int] | None = None
@@ -297,6 +301,13 @@ def validate_gru_config(config: GRUConfig) -> GRUConfig:
             )
     if config.kernel_size <= 0:
         errors.append(f"kernel_size must be > 0, got {config.kernel_size}")
+    from .gru import GRU_AUX_TARGET_SETS  # local import: avoid import-order coupling
+
+    if config.aux_target_set not in GRU_AUX_TARGET_SETS:
+        errors.append(
+            f"aux_target_set must be one of {sorted(GRU_AUX_TARGET_SETS)}, got "
+            f"{config.aux_target_set!r}"
+        )
     if errors:
         raise ValueError("Invalid GRU config:\n- " + "\n- ".join(errors))
     return config
@@ -344,6 +355,7 @@ def load_gru_config(path: str | Path) -> GRUConfig:
         model_type=str(raw.get("model_type", "gru")),
         num_heads=int(raw.get("num_heads", 5)),
         kernel_size=int(raw.get("kernel_size", 3)),
+        aux_target_set=str(raw.get("aux_target_set", "base4")),
         hidden_sizes=list(raw.get("hidden_sizes", [500])),
         dropout_rates=list(raw.get("dropout_rates", [0.3])),
         hidden_sizes_linear=list(raw.get("hidden_sizes_linear", [500, 300])),

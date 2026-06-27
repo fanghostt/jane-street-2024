@@ -1,0 +1,42 @@
+# GRU (day-batch) auxiliary-target-set A/B — base4 (the public-solution default).
+# Trains 4 auxiliary responder heads (responder_10/9/8/7). Identical protocol and
+# hyperparameters to gru_v0.yaml; the only knob under study is `aux_target_set`.
+# Engineered market/rolling features are OFF so the aux set is isolated. Runs the
+# `incremental` variant only — the decisive metric where the GRU generalises.
+model: gru
+variants: [incremental]
+
+train_path: data/raw/train.parquet
+
+start_date_id: 700
+end_date_id: null
+
+test_days: 200
+valid_days: 200
+gap_days: 0
+update_cadence: 1
+
+random_state: 42
+device: auto
+include_time: true
+
+# Auxiliary-target set under study (base4 / target_family / all9 / all11).
+aux_target_set: base4
+
+# Experiment tracking (offline-safe: writes to wandb/, sync later with `wandb sync`).
+use_wandb: true
+wandb_project: js2024-gru-aux
+
+# fp32 (use_amp off) so the A/B stays comparable to the gru_v0 baselines.
+use_amp: false
+
+hidden_sizes: [500]
+dropout_rates: [0.3]
+hidden_sizes_linear: [500, 300]
+dropout_rates_linear: [0.2, 0.1]
+lr: 0.0005
+lr_refit: 0.0003
+epochs: 1000
+early_stopping_patience: 1
+weight_decay: 0.01
+grad_clip: 1.0

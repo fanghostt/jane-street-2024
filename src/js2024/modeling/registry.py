@@ -42,6 +42,7 @@ from .gru import (
     GRUEstimator,
     add_gru_aux_targets,
     get_gru_feature_columns,
+    resolve_gru_aux_targets,
 )
 from .lag_features import (
     RESPONDER_COLUMNS,
@@ -105,6 +106,7 @@ def _make_seq(
         target_col=TARGET_COLUMN,
         weight_col=WEIGHT_COLUMN,
         params=params,
+        aux_cols=resolve_gru_aux_targets(config.aux_target_set),
         random_state=config.random_state,
         device=config.device,
     )
@@ -119,7 +121,14 @@ def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
     train_path = resolve_project_path(config.train_path)
     validate_data_path(train_path)
     available = set(scan_train_data(train_path).collect_schema().names())
-    aux_source_cols = [c for c in ("responder_7", "responder_8") if c in available]
+    # Real source responders to load: those the chosen aux set references (synthetic
+    # responder_9/10 are generated below, not loaded) plus responder_7/8 which
+    # add_gru_aux_targets always needs. Order is stable for a deterministic request.
+    aux_targets = resolve_gru_aux_targets(config.aux_target_set)
+    needed_responders = {c for c in aux_targets if c in RESPONDER_COLUMNS}
+    needed_responders.update({"responder_7", "responder_8"})
+    needed_responders.discard(TARGET_COLUMN)  # responder_6 is already loaded as the target
+    aux_source_cols = [c for c in RESPONDER_COLUMNS if c in needed_responders and c in available]
     # Lag reconstruction needs all 9 responders; merge with the aux sources and
     # the target (responder_6, already requested) so we only request each once.
     already_requested = set(aux_source_cols) | {TARGET_COLUMN}
@@ -184,7 +193,7 @@ def _seq_describe(config: GRUConfig, backbone: str, extra: str) -> list[str]:
 
 
 def _gru_describe(config: GRUConfig) -> list[str]:
-    return _seq_describe(config, config.model_type.upper(), "")
+    return _seq_describe(config, config.model_type.upper(), f", `aux_target_set={config.aux_target_set}`")
 
 
 def _transformer_describe(config: GRUConfig) -> list[str]:
