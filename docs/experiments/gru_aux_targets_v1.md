@@ -36,16 +36,30 @@ artifacts are gitignored; this file is the committed record.
 
 ## Status / verdict
 
-**TODO** — fill after the sweep completes.
+**More *real*-responder supervision helps; adding the target itself as a head hurts.**
+Both `all9` and `all11` beat `base4` on the paired delta with **3/3 seeds positive**
+(small but sign-stable, same ~+2–3% magnitude as the market features). `all11` (adds
+the synthetic responder_9/10 heads on top of `all9`) is best by a hair, but the
++0.000034 over `all9` is well inside the seed std — not a real difference. The synthetic
+heads add ~20% wall-clock (11 vs 9 heads) for no measurable gain. `target_family`
+(adding `responder_6`, the target, as an aux head) is the only loser: 0/3 seeds, a clear
+−0.00034. Paired sweep, seeds 42/43/44, recent700, test block `[1499, 1698]`, engineered
+features off.
 
 | aux_set | n seeds | mean Δ vs base4 | std Δ | +seeds | mean set R² | mean base4 R² |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| base4 (ref) | — | — | — | — | TODO | TODO |
-| target_family | TODO | TODO | TODO | TODO | TODO | TODO |
-| all9 | TODO | TODO | TODO | TODO | TODO | TODO |
-| all11 | TODO | TODO | TODO | TODO | TODO | TODO |
+| base4 (ref) | 3 | — | — | — | 0.011128 | 0.011128 |
+| **all11** | 3 | **+0.000303** | 0.000135 | **3/3** | 0.011430 | 0.011128 |
+| **all9** | 3 | **+0.000269** | 0.000244 | **3/3** | 0.011397 | 0.011128 |
+| target_family | 3 | −0.000339 | 0.000170 | 0/3 | 0.010789 | 0.011128 |
 
-- **verdict:** TODO (keep base4 / adopt larger set?).
+- **verdict:** adopt **`all9`** — it captures essentially all of the gain (+~2.4%) at 9
+  heads, while `all11`'s synthetic heads cost ~20% more compute for a within-noise
+  +0.000034. Keep `base4` as the documented default (bit-equivalent to prior runs);
+  `all9` is the recommended upgrade. **Avoid `target_family`** — putting the target on
+  an aux head is actively harmful.
+- base4's 3-seed mean (0.011128) reproduces the historical baseline exactly — confirms
+  the refactor is behaviour-preserving.
 
 ## Reproduce
 
