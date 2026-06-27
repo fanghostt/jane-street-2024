@@ -48,7 +48,11 @@ from .lag_features import (
     add_responder_lags_from_train,
     get_lag_feature_columns,
 )
-from .market_features import add_engineered_features, selected_columns
+from .market_features import (
+    add_engineered_features,
+    resolve_market_roll_features,
+    selected_columns,
+)
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,7 @@ def _gru_features(config: GRUConfig) -> list[str]:
     cols = cols + selected_columns(
         use_market_avg=config.use_market_avg,
         use_symbol_rolling=config.use_symbol_rolling,
+        features=resolve_market_roll_features(config.market_roll_subset),
     )
     return cols
 
@@ -156,6 +161,7 @@ def _load_gru_frame(config: GRUConfig, feature_cols: list[str]) -> pl.DataFrame:
         use_market_avg=config.use_market_avg,
         use_symbol_rolling=config.use_symbol_rolling,
         window=config.rolling_window,
+        features=resolve_market_roll_features(config.market_roll_subset),
     )
     return df
 
@@ -199,6 +205,7 @@ def _lgbm_features(config: LGBMConfig) -> list[str]:
     cols = cols + selected_columns(
         use_market_avg=config.use_market_avg,
         use_symbol_rolling=config.use_symbol_rolling,
+        features=resolve_market_roll_features(config.market_roll_subset),
     )
     return cols
 
@@ -236,6 +243,7 @@ def _load_lgbm_frame(config: LGBMConfig, feature_cols: list[str]) -> pl.DataFram
         use_market_avg=config.use_market_avg,
         use_symbol_rolling=config.use_symbol_rolling,
         window=config.rolling_window,
+        features=resolve_market_roll_features(config.market_roll_subset),
     )
     return df
 

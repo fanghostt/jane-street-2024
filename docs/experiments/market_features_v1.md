@@ -54,6 +54,42 @@ redundant-but-used signature, and add enough noise to cost −0.0006). The day-b
 `(symbols × time × features)` tensor per day with no built-in cross-symbol view; the market
 average and trailing rolling stats are genuinely new context, hence the gain.
 
+## Robustness sweep — window × subset × seed
+
+The follow-ups above (tune `rolling_window`, widen beyond top-12, more seeds) were run as one
+**paired sweep** (`js2024-run-marketroll-sweep`): windows {250,500,1000,2000} × feature
+subsets {top12,top24} × seeds {42,43,44}, plus 3 shared baselines (the baseline is invariant
+to window/subset, so it is run once per seed and reused). Decisive metric is the per-seed
+paired Δ = `gru_incremental(marketroll) − gru_incremental(baseline)`; the baseline reproduced
+`gru_v0` exactly (0.011139 at seed 42). 27 runs total.
+
+| window | subset | n | mean Δ | std Δ | +seeds |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 250 | top12 | 3 | **+0.001053** | 0.000249 | 3/3 |
+| 1000 | top12 | 3 | +0.000940 | 0.000356 | 3/3 |
+| 2000 | top12 | 3 | +0.000811 | 0.000253 | 3/3 |
+| 500 | top12 | 3 | +0.000773 | 0.000220 | 3/3 |
+| 2000 | top24 | 3 | +0.000511 | 0.000535 | 2/3 |
+| 250 | top24 | 3 | +0.000440 | 0.000453 | 3/3 |
+| 1000 | top24 | 3 | +0.000377 | 0.000127 | 3/3 |
+| 500 | top24 | 3 | +0.000352 | 0.000265 | 3/3 |
+
+Three conclusions, all of which close the corresponding follow-up:
+
+- **The gain is robust.** Every top12 cell is 3/3 seeds positive with mean ≈ 4× its std — the
+  +0.00115 single-point win holds across windows and seeds, not a lucky seed.
+- **top12 > top24, decisively.** Engineering *more* features halves the gain (top24 ≈ +0.0004
+  vs top12 ≈ +0.0009) and destabilises it (w2000/top24 drops to 2/3). The extra rank-13..24
+  features carry weaker signal; their `_mkt`/`_roll_*` columns dilute the online fine-tune
+  rather than help. `all` (79 features) was not run — the monotone 12→24 decline makes it a
+  safe inference that it is worse still.
+- **`rolling_window` is a weak knob.** top12 ordering is 250 ≥ 1000 ≥ 2000 ≥ 500 but all sit
+  within ~0.0003. Short window (250) is marginally best; the difference is not worth chasing.
+
+`market_roll_subset` (top12/top24/all, prefixes of the V0 LGBM *split*-importance ranking) is
+a config key on both GRU and LGBM configs; `top12` is byte-for-byte the original feature list,
+so this section's baseline matches the earlier A/B with no drift.
+
 ## Cross-check against the public solution
 
 These are exactly the two engineered families `evgeniavolkova/kagglejanestreet` uses on top of
@@ -69,9 +105,12 @@ online updating, not from feeding lagged responders.
 - **Keep market-avg + per-symbol rolling for the GRU / sequence + online track**
   (`use_market_avg: true`, `use_symbol_rolling: true`). Leave them off for the static LGBM
   baseline, where they do not pay.
+- **Settings:** `market_roll_subset: top12`, `rolling_window: 250` (or 1000 — within noise).
+  The robustness sweep below settled the three open knobs: the gain holds across seeds, top12
+  beats top24 (don't widen), and the window barely matters.
 - Effect is small (+~11% on a ~0.011 base); treat as one accepted brick, not a finish line.
-  Natural follow-ups: tune `rolling_window`, widen beyond the top-12 features, and re-confirm
-  on more seeds before leaning on the absolute number.
+  The window/subset axes are now exhausted — further gains need a *new* direction (a new
+  feature family or target engineering), not more tuning of these two.
 
 ## Reproduce
 
@@ -79,10 +118,15 @@ online updating, not from feeding lagged responders.
 # LGBM static A/B
 uv run js2024-train-lgbm --config configs/lgbm_marketroll_v1_recent700.yaml
 
-# GRU full + paired incremental A/B (vary random_state for the seed sweep)
+# GRU full + paired incremental A/B (single seed)
 uv run js2024-run-experiment --config configs/gru_marketroll_v1.yaml --variants full,incremental
 uv run js2024-run-experiment --config configs/gru_v0.yaml          --variants incremental
+
+# Robustness sweep — window × subset × seed, paired vs the same-seed baseline
+uv run js2024-run-marketroll-sweep \
+    --windows 250,500,1000,2000 --subsets top12,top24 --seeds 42,43,44
 ```
 
-Sweep artifacts: `experiments/marketroll_sweep/` (paired seeds 1,2) and
-`experiments/20260626_gru/175142` (marketroll incr seed 42).
+Heavy per-run artifacts are gitignored scratch (`experiments/marketroll_sweep/`); the numbers
+above are the committed record. The sweep writes `runs.csv` / `paired.csv` / `summary.csv` /
+`report.md` and supports `--wandb --wandb-project <name>` for live tracking.

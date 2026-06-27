@@ -67,6 +67,7 @@ class LGBMConfig:
     use_market_avg: bool = False        # cross-sectional <feature>_mkt per (date, time)
     use_symbol_rolling: bool = False    # trailing per-symbol rolling mean/std
     rolling_window: int = 1000
+    market_roll_subset: str = "top12"   # which features get engineered: top12/top24/all
     # Walk-forward (incremental vs full) options; defaulted so existing YAMLs
     # and the other runners are unaffected.
     test_days: int = 200
@@ -172,6 +173,7 @@ def load_lgbm_config(path: str | Path) -> LGBMConfig:
         use_market_avg=bool(raw.get("use_market_avg", False)),
         use_symbol_rolling=bool(raw.get("use_symbol_rolling", False)),
         rolling_window=int(raw.get("rolling_window", 1000)),
+        market_roll_subset=str(raw.get("market_roll_subset", "top12")),
         test_days=int(raw.get("test_days", 200)),
         update_method=str(raw.get("update_method", "refit")),
         update_methods=(
@@ -206,6 +208,7 @@ class GRUConfig:
     use_market_avg: bool = False        # cross-sectional <feature>_mkt per (date, time)
     use_symbol_rolling: bool = False    # trailing per-symbol rolling mean/std
     rolling_window: int = 1000
+    market_roll_subset: str = "top12"   # which features get engineered: top12/top24/all
     device: str = "auto"
     # Sequence backbone: gru/lstm (recurrent), transformer (causal attention),
     # tcn (causal dilated conv). All share the day-batch + aux-head protocol.
@@ -336,6 +339,7 @@ def load_gru_config(path: str | Path) -> GRUConfig:
         use_market_avg=bool(raw.get("use_market_avg", False)),
         use_symbol_rolling=bool(raw.get("use_symbol_rolling", False)),
         rolling_window=int(raw.get("rolling_window", 1000)),
+        market_roll_subset=str(raw.get("market_roll_subset", "top12")),
         device=str(raw.get("device", "auto")),
         model_type=str(raw.get("model_type", "gru")),
         num_heads=int(raw.get("num_heads", 5)),

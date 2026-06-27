@@ -86,8 +86,15 @@ def run_walk_forward_suite(
     *,
     variants: list[str],
     feature_cols: list[str],
+    wandb_run_name: str | None = None,
 ) -> SuiteBundle:
-    """Fit + walk-forward evaluate ``spec``'s estimator for each variant."""
+    """Fit + walk-forward evaluate ``spec``'s estimator for each variant.
+
+    ``wandb_run_name`` overrides the wandb run *name* only (the results label is
+    unchanged); used by the sweep to give each cell a distinguishable name in the UI.
+    When a call expands into several sub-runs, the sub-label is appended to keep names
+    unique.
+    """
     validate_variants(variants)
 
     min_date, max_date = get_date_id_range(df)
@@ -128,12 +135,18 @@ def run_walk_forward_suite(
 
         for sub_label, est in runs:
             label = f"{spec.name}_{sub_label}"
+            if wandb_run_name is None:
+                run_name = label
+            elif len(runs) > 1:
+                run_name = f"{wandb_run_name}_{sub_label}"
+            else:
+                run_name = wandb_run_name
             print(f"\n[js2024] === {label} (cadence={cadence}) ===")
             wandb_config = _wandb_config(config, variant=sub_label, cadence=cadence)
             with tracking.run(
                 getattr(config, "use_wandb", False),
                 project=getattr(config, "wandb_project", "js2024"),
-                name=label,
+                name=run_name,
                 group=spec.name,
                 config=wandb_config,
             ):

@@ -37,7 +37,11 @@ from .lag_features import (
     add_responder_lags_from_train,
     get_lag_feature_columns,
 )
-from .market_features import add_engineered_features, selected_columns
+from .market_features import (
+    add_engineered_features,
+    resolve_market_roll_features,
+    selected_columns,
+)
 from .metrics import weighted_zero_mean_r2
 from .reporting import write_lgbm_report
 from .validation import build_holdout_split, filter_by_date_range, summarize_date_split
@@ -106,6 +110,7 @@ def run(
     feature_cols = feature_cols + selected_columns(
         use_market_avg=config.use_market_avg,
         use_symbol_rolling=config.use_symbol_rolling,
+        features=resolve_market_roll_features(config.market_roll_subset),
     )
 
     if df is None:
@@ -132,6 +137,7 @@ def run(
         use_market_avg=config.use_market_avg,
         use_symbol_rolling=config.use_symbol_rolling,
         window=config.rolling_window,
+        features=resolve_market_roll_features(config.market_roll_subset),
     )
 
     min_date, max_date = get_date_id_range(df)
