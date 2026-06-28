@@ -26,6 +26,13 @@ use_market_avg: true
 use_symbol_rolling: true
 rolling_window: 1000
 
+# Auxiliary-target set: all9 (responder_0..8) beat the public-solution base4 by
+# +~2.4% online, 3/3 seeds, in the standalone aux sweep (engineered features off;
+# see docs/experiments/gru_aux_targets_v1.md). Stacking all9 on top of the market
+# features here is the best-bet production config; the combination is not yet
+# measured paired, so treat it as the current SOTA candidate, not a confirmed A/B.
+aux_target_set: all9
+
 # Experiment tracking (offline-safe: writes to wandb/, sync later with `wandb sync`).
 use_wandb: true
 wandb_project: js2024-marketroll

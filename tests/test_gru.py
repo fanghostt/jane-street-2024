@@ -5,8 +5,12 @@ import polars as pl
 import pytest
 
 from js2024.modeling.gru import (
+    GRU_AUX_COLUMNS,
+    GRU_AUX_TARGET_SETS,
+    GRUEstimator,
     add_gru_aux_targets,
     get_gru_feature_columns,
+    resolve_gru_aux_targets,
 )
 from js2024.runners.run_experiment import main
 
@@ -48,12 +52,40 @@ def _write_fake_train(path, n_days=7, n_times=3, n_symbols=2, seed=0):
                 row = {"date_id": d, "time_id": t, "symbol_id": s}
                 for f in FEATURES:
                     row[f] = float(rng.normal())
+                # All 9 real responders so non-base4 aux sets (all9/all11) load.
+                for i in range(9):
+                    row[f"responder_{i}"] = float(0.1 * row[f"feature_{i:02d}"] + 0.1 * rng.normal())
                 row["responder_6"] = float(0.2 * row["feature_00"] + 0.1 * rng.normal())
-                row["responder_7"] = float(0.1 * row["feature_01"] + 0.1 * rng.normal())
-                row["responder_8"] = float(0.1 * row["feature_02"] + 0.1 * rng.normal())
                 row["weight"] = 1.0
                 rows.append(row)
     pl.DataFrame(rows).write_parquet(path)
+
+
+def test_resolve_aux_base4_matches_legacy_constant():
+    # base4 must reproduce the public-solution default verbatim (order + contents)
+    # so existing GRU configs stay bit-for-bit identical.
+    assert resolve_gru_aux_targets("base4") == GRU_AUX_COLUMNS
+    assert GRU_AUX_TARGET_SETS["base4"] == ["responder_10", "responder_9", "responder_8", "responder_7"]
+
+
+def test_resolve_aux_sets_membership():
+    assert resolve_gru_aux_targets("all9") == [f"responder_{i}" for i in range(9)]
+    assert resolve_gru_aux_targets("all11") == [f"responder_{i}" for i in range(11)]
+    assert resolve_gru_aux_targets("target_family") == [
+        "responder_6", "responder_7", "responder_8", "responder_9", "responder_10"
+    ]
+
+
+def test_resolve_aux_unknown_raises():
+    with pytest.raises(ValueError, match="unknown aux_target_set"):
+        resolve_gru_aux_targets("nope")
+
+
+def test_estimator_aux_cols_default_and_override():
+    cols = get_gru_feature_columns(include_time=True)
+    assert GRUEstimator(cols).aux_cols == GRU_AUX_COLUMNS  # default == base4
+    est = GRUEstimator(cols, aux_cols=resolve_gru_aux_targets("all9"))
+    assert est.aux_cols == [f"responder_{i}" for i in range(9)]
 
 
 def _write_config(path, train_path, *, model="gru", extra=()):
@@ -110,3 +142,63 @@ def test_seq_backbones_run_via_generic_runner(tmp_path, model, extra):
     summary = pl.read_csv(out / "summary.csv")
     assert summary.get_column("variant").to_list() == [f"{model}_full"]
     assert (out / "manifest.json").exists()
+
+
+@pytest.mark.parametrize("aux_set", ["base4", "target_family", "all9", "all11"])
+def test_aux_target_sets_run_via_generic_runner(tmp_path, aux_set):
+    train = tmp_path / "train.parquet"
+    _write_fake_train(train)
+    cfg = tmp_path / "cfg.yaml"
+    _write_config(cfg, train, extra=(f"aux_target_set: {aux_set}",))
+    out = tmp_path / "out"
+
+    rc = main(["--config", str(cfg), "--variants", "full", "--out-dir", str(out)])
+
+    assert rc == 0
+    summary = pl.read_csv(out / "summary.csv")
+    assert summary.get_column("variant").to_list() == ["gru_full"]
+
+
+def test_online_update_uses_target_loss_regardless_of_aux_set(tmp_path):
+    # The online update() path trains on the target (responder_6) loss only, so it
+    # runs unchanged for any aux set — including ones with more heads than base4.
+    train = tmp_path / "train.parquet"
+    _write_fake_train(train)
+    df = pl.read_parquet(train)
+    df = add_gru_aux_targets(df)
+    cols = get_gru_feature_columns(include_time=True)
+    est = GRUEstimator(
+        cols,
+        aux_cols=resolve_gru_aux_targets("all9"),
+        params={"epochs": 1, "hidden_sizes": [4], "dropout_rates": [0.0],
+                "hidden_sizes_linear": [4], "dropout_rates_linear": [0.0],
+                "lr": 1e-4, "lr_refit": 1e-4},
+        device="cpu",
+    )
+    train_days = df.filter(pl.col("date_id") < 5)
+    new_days = df.filter(pl.col("date_id") >= 5)
+    est.fit(train_days, train_days)
+    # update() optimizes the target (responder_6) loss only — it builds no aux loss,
+    # so a 9-head aux set fine-tunes online exactly like base4.
+    est.update(new_days)
+    preds = est.predict(new_days)
+    assert preds.shape[0] == new_days.height
+
+
+def test_aux_sweep_paired_and_summary():
+    from js2024.runners.run_aux_sweep import paired_rows, summarize_cells
+
+    runs = [
+        {"aux_set": "base4", "seed": 42, "score": 0.010},
+        {"aux_set": "base4", "seed": 43, "score": 0.012},
+        {"aux_set": "all9", "seed": 42, "score": 0.011},   # +0.001
+        {"aux_set": "all9", "seed": 43, "score": 0.013},   # +0.001
+    ]
+    paired = paired_rows(runs)
+    assert {p["aux_set"] for p in paired} == {"all9"}
+    assert all(abs(p["delta"] - 0.001) < 1e-9 for p in paired)
+    summary = summarize_cells(paired)
+    assert len(summary) == 1
+    assert summary[0]["aux_set"] == "all9"
+    assert summary[0]["n_positive"] == 2
+    assert abs(summary[0]["mean_delta"] - 0.001) < 1e-9
