@@ -61,6 +61,15 @@ features off.
 - base4's 3-seed mean (0.011128) reproduces the historical baseline exactly — confirms
   the refactor is behaviour-preserving.
 
+### Production adoption
+
+`configs/gru_marketroll_v1.yaml` (the SOTA config: market-avg + per-symbol rolling) now
+sets `aux_target_set: all9`, stacking this win on top of the market features. **Caveat:**
+this sweep measured `all9` with engineered features *off*, so the all9 × market-features
+combination is a best-bet, not a paired A/B yet — verify it before trusting the stacked
+number. `GRUConfig`'s default stays `base4` (bit-equivalent to prior runs); only the
+production config opts in.
+
 ## Reproduce
 
 ```bash
