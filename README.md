@@ -7,14 +7,19 @@ competition.
 ## Project goals
 
 - Rebuild a maintainable, reproducible financial ML pipeline **from zero**.
-- **V0 (current):** a single LightGBM baseline — the competition metric, a
-  time-aware date split, lean data loading, and an end-to-end training CLI.
-- **Later milestones** (not implemented yet) target parity with
+- **V0:** a single LightGBM baseline — the competition metric, a time-aware date
+  split, lean data loading, and an end-to-end training CLI.
+- **Now:** a config-driven walk-forward stack that reaches near-parity with
   [`evgeniavolkova/kagglejanestreet`](https://github.com/evgeniavolkova/kagglejanestreet):
-  GRU models, auxiliary targets, online learning, and ensembling.
+  a day-batch **GRU** with auxiliary responder heads, **online** (incremental)
+  finetuning, leakage-safe **market-average / per-symbol rolling** features, a
+  configurable **auxiliary-target set**, and a **deep & wide** architecture knob.
+  A single online GRU (`gru_marketroll_v1`, the current SOTA config) scores
+  ≈ 0.0119, on par with the reference's 6-model ensemble (LB 0.0112).
+- **Remaining gap:** ensembling and Kaggle inference/submission packaging.
 
-This V0 is deliberately *not* a copy of that repo — it is a foundation we can
-extend toward it.
+This is deliberately *not* a copy of that repo — it is a foundation built up
+toward it, with every design choice validated by a recorded A/B experiment.
 
 ## Data
 
@@ -259,8 +264,9 @@ in [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md) §3–4.
 
 `GRUEstimator` (registry key `gru`) is a **day-batch** GRU closer to
 `evgeniavolkova/kagglejanestreet`: one `date_id` is one batch, rows are reshaped
-into `symbols × time_id × features`, and four auxiliary responder heads are trained
-jointly with the final target. It satisfies the same `Estimator` protocol, so it is
+into `symbols × time_id × features`, and auxiliary responder heads are trained
+jointly with the final target (the head set is configurable — see `aux_target_set`
+below). It satisfies the same `Estimator` protocol, so it is
 driven by the **same** `walk_forward_evaluate` engine and fixed-test-block protocol
 as LightGBM — its weighted zero-mean R² is directly comparable. The sequence axis is
 the `time_id` order *within* a day (hidden state does not carry across `date_id`s).
@@ -276,6 +282,9 @@ evaluate; there is no per-model runner script.
 ```bash
 uv run js2024-run-experiment --config configs/gru_v0.yaml
 uv run js2024-run-experiment --config configs/gru_v0.yaml --variants full
+
+# current SOTA online config (market features + aux all9):
+uv run js2024-run-experiment --config configs/gru_marketroll_v1.yaml
 ```
 
 Useful flags: `--variants`, `--test-days`, `--update-cadence`, `--out-dir`,
@@ -296,6 +305,19 @@ Optional GRU config keys (all default off, so baselines are unaffected):
   CUDA. ~1.5× faster per epoch on Blackwell GPUs at the cost of slightly perturbed
   numerics, so keep it **off** for bit-reproducible baselines and on for fast
   exploration.
+- `use_market_avg` / `use_symbol_rolling: true` (+ `rolling_window`, default 1000) —
+  append leakage-safe **cross-sectional market averages** per `(date_id, time_id)` and
+  **per-symbol trailing rolling mean/std** over the top-importance features. **Adopted**
+  — small but consistent **+~11%** on the online GRU (paired, 3/3 seeds; slightly hurts
+  static LGBM). See `docs/experiments/market_features_v1.md`.
+- `aux_target_set: base4 | target_family | all9 | all11` — which auxiliary responder
+  heads to train alongside the target. **`all9` adopted** (real `responder_0..8`): beats
+  the public-solution `base4` by **+~2.4%**, 3/3 seeds; adding the target itself as a head
+  (`target_family`) hurts. See `docs/experiments/gru_aux_targets_v1.md`.
+- `architecture: gru_mlp | deep_wide_gru | deep_wide_residual` — the default `gru_mlp` is
+  the public-solution RNN→FC stack; `deep_wide_gru` adds a shallow wide branch over the raw
+  inputs (Cheng et al., 2016). w256 is a **candidate** (+~3.7%, 3/3 seeds, clean variance);
+  `deep_wide_residual` was **dropped** (0/3). See `docs/experiments/deepwide_gru_v1.md`.
 - `use_responder_lags: true` — append reconstructed D-1 responders
   (`responder_i_lag_1`) to the inputs. **Tried and rejected** (it hurts the metric —
   see `docs/experiments/lag_features_v1.md`); kept only as a recorded experiment.
@@ -349,16 +371,18 @@ Console scripts (defined in `pyproject.toml`) are unchanged by the layout — e.
 - [x] Competition metric implemented correctly
 - [x] Time-aware date split implemented correctly
 - [x] CLI gives a clear error when data is missing (no crash, no fake results)
-- [ ] With data present: produces `model` / `oof` / `report` (run once data is placed)
+- [x] With data present: produces `model` / `oof` / `report` (recent700 baseline
+  R² = 0.010469; see [`docs/experiments/lgbm_v0.md`](docs/experiments/lgbm_v0.md))
 
 ## Explicitly not implemented yet
 
 - Ensembling (the reference averages 2 architectures × 3 seeds)
 - Kaggle inference gateway / submission packaging
-- Full `evgeniavolkova/kagglejanestreet` parity. The remaining gap is **feature
-  engineering**, not the model: we already match its aux-target heads, online finetune
-  and architecture (single online GRU ≈ 0.0111, ≈ their 6-model ensemble LB 0.0112).
-  Missing inputs = cross-sectional **market averages** per `(date_id, time_id)` and
-  per-`symbol_id` **rolling statistics** over ~1000 time steps. This is the next
-  higher-leverage experiment. Simple D-1 responder lags were tried and **rejected**
-  (`docs/experiments/lag_features_v1.md`).
+
+We are at **near-parity** with `evgeniavolkova/kagglejanestreet`: the aux-target heads,
+online finetune, architecture, **and** the cross-sectional market-average / per-symbol
+rolling features are now all implemented and validated — a single online GRU
+(`gru_marketroll_v1`) ≈ 0.0119, on par with their 6-model ensemble (LB 0.0112).
+Simple D-1 responder lags were tried and **rejected** (`docs/experiments/lag_features_v1.md`).
+The remaining headroom is ensembling and confirming the `deep_wide_gru` candidate, not new
+inputs.
