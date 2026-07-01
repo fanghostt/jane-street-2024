@@ -219,6 +219,22 @@ class GRUConfig:
     # js2024.modeling.gru.GRU_AUX_TARGET_SETS). Defaults to the public-solution
     # base4 so existing GRU configs are unaffected.
     aux_target_set: str = "base4"
+    # Per-head architecture. "gru_mlp" is the original deep RNN stack -> FC head
+    # (behaviour unchanged when this is the default). "deep_wide_gru" fuses the
+    # deep representation with a per-timestep wide MLP over the raw inputs;
+    # "deep_wide_residual" adds a small scaled wide prediction to the deep one.
+    # See js2024.modeling.gru._build_model.
+    architecture: str = "gru_mlp"
+    # Wide-branch MLP over the standardized inputs (deep_wide_* only). When None
+    # these fall back to hidden_sizes_linear / dropout_rates_linear.
+    wide_hidden_sizes: list[int] | None = None
+    wide_dropout_rates: list[float] | None = None
+    # Fusion MLP over concat([deep_repr, wide_repr]) (deep_wide_gru only). When
+    # None these fall back to hidden_sizes_linear / dropout_rates_linear.
+    fusion_hidden_sizes: list[int] | None = None
+    fusion_dropout_rates: list[float] | None = None
+    # Scale on the wide prediction added to the deep one (deep_wide_residual only).
+    wide_residual_scale: float = 0.1
     hidden_sizes: list[int] | None = None
     dropout_rates: list[float] | None = None
     hidden_sizes_linear: list[int] | None = None
@@ -308,6 +324,32 @@ def validate_gru_config(config: GRUConfig) -> GRUConfig:
             f"aux_target_set must be one of {sorted(GRU_AUX_TARGET_SETS)}, got "
             f"{config.aux_target_set!r}"
         )
+    architectures = {"gru_mlp", "deep_wide_gru", "deep_wide_residual"}
+    if config.architecture not in architectures:
+        errors.append(
+            f"architecture must be one of {sorted(architectures)}, got "
+            f"{config.architecture!r}"
+        )
+    if (config.wide_hidden_sizes is None) != (config.wide_dropout_rates is None):
+        errors.append(
+            "wide_hidden_sizes and wide_dropout_rates must both be set or both omitted"
+        )
+    elif config.wide_hidden_sizes is not None and len(config.wide_hidden_sizes) != len(
+        config.wide_dropout_rates
+    ):
+        errors.append("wide_dropout_rates length must match wide_hidden_sizes")
+    if (config.fusion_hidden_sizes is None) != (config.fusion_dropout_rates is None):
+        errors.append(
+            "fusion_hidden_sizes and fusion_dropout_rates must both be set or both omitted"
+        )
+    elif config.fusion_hidden_sizes is not None and len(config.fusion_hidden_sizes) != len(
+        config.fusion_dropout_rates
+    ):
+        errors.append("fusion_dropout_rates length must match fusion_hidden_sizes")
+    if config.wide_residual_scale < 0:
+        errors.append(
+            f"wide_residual_scale must be >= 0, got {config.wide_residual_scale}"
+        )
     if errors:
         raise ValueError("Invalid GRU config:\n- " + "\n- ".join(errors))
     return config
@@ -319,6 +361,28 @@ def gru_params(config: GRUConfig) -> dict[str, Any]:
         "model_type": config.model_type,
         "num_heads": config.num_heads,
         "kernel_size": config.kernel_size,
+        "architecture": config.architecture,
+        "wide_hidden_sizes": (
+            list(config.wide_hidden_sizes)
+            if config.wide_hidden_sizes is not None
+            else None
+        ),
+        "wide_dropout_rates": (
+            list(config.wide_dropout_rates)
+            if config.wide_dropout_rates is not None
+            else None
+        ),
+        "fusion_hidden_sizes": (
+            list(config.fusion_hidden_sizes)
+            if config.fusion_hidden_sizes is not None
+            else None
+        ),
+        "fusion_dropout_rates": (
+            list(config.fusion_dropout_rates)
+            if config.fusion_dropout_rates is not None
+            else None
+        ),
+        "wide_residual_scale": config.wide_residual_scale,
         "hidden_sizes": list(config.hidden_sizes or [500]),
         "dropout_rates": list(config.dropout_rates or [0.3]),
         "hidden_sizes_linear": list(config.hidden_sizes_linear or [500, 300]),
@@ -356,6 +420,28 @@ def load_gru_config(path: str | Path) -> GRUConfig:
         num_heads=int(raw.get("num_heads", 5)),
         kernel_size=int(raw.get("kernel_size", 3)),
         aux_target_set=str(raw.get("aux_target_set", "base4")),
+        architecture=str(raw.get("architecture", "gru_mlp")),
+        wide_hidden_sizes=(
+            [int(h) for h in raw["wide_hidden_sizes"]]
+            if raw.get("wide_hidden_sizes") is not None
+            else None
+        ),
+        wide_dropout_rates=(
+            [float(d) for d in raw["wide_dropout_rates"]]
+            if raw.get("wide_dropout_rates") is not None
+            else None
+        ),
+        fusion_hidden_sizes=(
+            [int(h) for h in raw["fusion_hidden_sizes"]]
+            if raw.get("fusion_hidden_sizes") is not None
+            else None
+        ),
+        fusion_dropout_rates=(
+            [float(d) for d in raw["fusion_dropout_rates"]]
+            if raw.get("fusion_dropout_rates") is not None
+            else None
+        ),
+        wide_residual_scale=float(raw.get("wide_residual_scale", 0.1)),
         hidden_sizes=list(raw.get("hidden_sizes", [500])),
         dropout_rates=list(raw.get("dropout_rates", [0.3])),
         hidden_sizes_linear=list(raw.get("hidden_sizes_linear", [500, 300])),

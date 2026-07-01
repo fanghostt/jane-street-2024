@@ -226,6 +226,7 @@ def _ensure_layer_classes() -> None:
 
 
 def _build_model(n_features: int, params: dict[str, Any], n_aux: int):
+    import torch
     import torch.nn as nn
 
     _ensure_layer_classes()
@@ -234,6 +235,25 @@ def _build_model(n_features: int, params: dict[str, Any], n_aux: int):
     hidden_linear = list(params["hidden_sizes_linear"])
     dropout_linear = list(params["dropout_rates_linear"])
     model_type = str(params.get("model_type", "gru"))
+    architecture = str(params.get("architecture", "gru_mlp"))
+    # Wide/fusion MLP shapes (deep_wide_* only). Fall back to the deep FC head's
+    # sizes when omitted so a config can opt in by setting only `architecture`.
+    wide_hidden = list(params.get("wide_hidden_sizes") or hidden_linear)
+    wide_dropout = list(params.get("wide_dropout_rates") or dropout_linear)
+    fusion_hidden = list(params.get("fusion_hidden_sizes") or hidden_linear)
+    fusion_dropout = list(params.get("fusion_dropout_rates") or dropout_linear)
+    wide_residual_scale = float(params.get("wide_residual_scale", 0.1))
+
+    def _mlp_layers(in_dim: int, hidden: list[int], dropouts: list[float]):
+        """Build a [Linear, ReLU, Dropout]* stack; return (layers, output_dim)."""
+        layers: list[nn.Module] = []
+        prev = in_dim
+        for h, dr in zip(hidden, dropouts):
+            layers.append(nn.Linear(prev, h))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(float(dr)))
+            prev = h
+        return layers, prev
 
     class ModelRBase(nn.Module):
         def __init__(self) -> None:
@@ -248,13 +268,33 @@ def _build_model(n_features: int, params: dict[str, Any], n_aux: int):
                 self.dropouts.append(nn.Dropout(float(dropout_rates[i])))
 
             in_dim = hidden_sizes[-1] if hidden_sizes else n_features
-            fc = []
-            for i, hidden in enumerate(hidden_linear):
-                fc.append(nn.Linear(in_dim if i == 0 else hidden_linear[i - 1], hidden))
-                fc.append(nn.ReLU())
-                fc.append(nn.Dropout(float(dropout_linear[i])))
-            fc.append(nn.Linear(hidden_linear[-1] if hidden_linear else in_dim, 1))
-            self.fc = nn.Sequential(*fc)
+            if architecture == "deep_wide_gru":
+                # Wide branch: per-timestep MLP over the raw inputs -> wide repr.
+                wide_layers, wide_out = _mlp_layers(n_features, wide_hidden, wide_dropout)
+                self.wide = nn.Sequential(*wide_layers)
+                # Fusion MLP over concat([deep_repr, wide_repr]) -> single pred.
+                fusion_layers, fusion_out = _mlp_layers(
+                    in_dim + wide_out, fusion_hidden, fusion_dropout
+                )
+                fusion_layers.append(nn.Linear(fusion_out, 1))
+                self.fusion = nn.Sequential(*fusion_layers)
+            else:
+                # gru_mlp and deep_wide_residual both keep the original deep FC
+                # head. Built identically so gru_mlp stays bit-for-bit unchanged.
+                fc = []
+                for i, hidden in enumerate(hidden_linear):
+                    fc.append(nn.Linear(in_dim if i == 0 else hidden_linear[i - 1], hidden))
+                    fc.append(nn.ReLU())
+                    fc.append(nn.Dropout(float(dropout_linear[i])))
+                fc.append(nn.Linear(hidden_linear[-1] if hidden_linear else in_dim, 1))
+                self.fc = nn.Sequential(*fc)
+                if architecture == "deep_wide_residual":
+                    # Wide branch outputs a single prediction added to the deep one.
+                    wide_layers, wide_out = _mlp_layers(
+                        n_features, wide_hidden, wide_dropout
+                    )
+                    wide_layers.append(nn.Linear(wide_out, 1))
+                    self.wide = nn.Sequential(*wide_layers)
 
         def forward(self, x, hidden=None):
             d, t, _ = x.shape
@@ -266,7 +306,15 @@ def _build_model(n_features: int, params: dict[str, Any], n_aux: int):
                 out, h = layer(out, hidden[i])
                 out = self.dropouts[i](out)
                 next_hidden.append(h)
+            if architecture == "deep_wide_gru":
+                deep_flat = out.reshape(d * t, -1)
+                wide_flat = self.wide(x.reshape(d * t, -1))
+                fused = torch.cat([deep_flat, wide_flat], dim=1)
+                return self.fusion(fused).reshape(d, t), next_hidden
             out = self.fc(out.reshape(d * t, -1)).reshape(d, t)
+            if architecture == "deep_wide_residual":
+                wide = self.wide(x.reshape(d * t, -1)).reshape(d, t)
+                out = out + wide_residual_scale * wide
             return out, next_hidden
 
     class ModelR(nn.Module):
@@ -296,6 +344,12 @@ GRU_DEFAULT_PARAMS: dict[str, Any] = {
     "model_type": "gru",
     "num_heads": 5,        # transformer: attention heads (hidden must divide evenly)
     "kernel_size": 3,      # tcn: causal conv kernel width
+    "architecture": "gru_mlp",  # gru_mlp | deep_wide_gru | deep_wide_residual
+    "wide_hidden_sizes": None,   # deep_wide_*: wide MLP sizes (None -> linear sizes)
+    "wide_dropout_rates": None,
+    "fusion_hidden_sizes": None, # deep_wide_gru: fusion MLP sizes (None -> linear sizes)
+    "fusion_dropout_rates": None,
+    "wide_residual_scale": 0.1,  # deep_wide_residual: scale on the wide prediction
     "hidden_sizes": [500],
     "dropout_rates": [0.3],
     "hidden_sizes_linear": [500, 300],

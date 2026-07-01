@@ -7,6 +7,7 @@ import pytest
 from js2024.modeling.gru import (
     GRU_AUX_COLUMNS,
     GRU_AUX_TARGET_SETS,
+    GRU_DEFAULT_PARAMS,
     GRUEstimator,
     add_gru_aux_targets,
     get_gru_feature_columns,
@@ -88,6 +89,70 @@ def test_estimator_aux_cols_default_and_override():
     assert est.aux_cols == [f"responder_{i}" for i in range(9)]
 
 
+def _build_test_model(architecture, n_features=6, n_aux=4, extra=None):
+    from js2024.modeling.gru import _build_model
+
+    params = {
+        **GRU_DEFAULT_PARAMS,
+        "architecture": architecture,
+        "hidden_sizes": [8],
+        "dropout_rates": [0.0],
+        "hidden_sizes_linear": [8],
+        "dropout_rates_linear": [0.0],
+    }
+    if extra:
+        params.update(extra)
+    return _build_model(n_features, params, n_aux)
+
+
+def _forward_shapes(architecture, extra=None):
+    torch = pytest.importorskip("torch")
+    model = _build_test_model(architecture, extra=extra)
+    x = torch.randn(3, 5, 6)  # 3 symbols x 5 time_ids x 6 features
+    y, aux, _ = model(x, None)
+    return tuple(y.shape), tuple(aux.shape)
+
+
+def test_architecture_defaults_to_gru_mlp():
+    from js2024.modeling.config import GRUConfig
+
+    assert GRUConfig.architecture == "gru_mlp"
+    assert GRU_DEFAULT_PARAMS["architecture"] == "gru_mlp"
+
+
+def test_deep_wide_gru_forward_shape_matches_gru_mlp():
+    base = _forward_shapes("gru_mlp")
+    dw = _forward_shapes(
+        "deep_wide_gru",
+        {"wide_hidden_sizes": [8], "wide_dropout_rates": [0.0]},
+    )
+    assert dw == base
+
+
+def test_deep_wide_residual_forward_shape_matches_gru_mlp():
+    base = _forward_shapes("gru_mlp")
+    res = _forward_shapes(
+        "deep_wide_residual",
+        {"wide_hidden_sizes": [8], "wide_dropout_rates": [0.0]},
+    )
+    assert res == base
+
+
+def test_gru_mlp_builds_no_wide_branch():
+    # gru_mlp must not allocate wide/fusion modules so old models are untouched.
+    pytest.importorskip("torch")
+    model = _build_test_model("gru_mlp")
+    names = [n for n, _ in model.named_modules()]
+    assert not any("wide" in n or "fusion" in n for n in names)
+    # the deep_wide variant, by contrast, does create them.
+    dw = _build_test_model(
+        "deep_wide_gru", extra={"wide_hidden_sizes": [8], "wide_dropout_rates": [0.0]}
+    )
+    dw_names = [n for n, _ in dw.named_modules()]
+    assert any("wide" in n for n in dw_names)
+    assert any("fusion" in n for n in dw_names)
+
+
 def _write_config(path, train_path, *, model="gru", extra=()):
     path.write_text(
         "\n".join(
@@ -142,6 +207,36 @@ def test_seq_backbones_run_via_generic_runner(tmp_path, model, extra):
     summary = pl.read_csv(out / "summary.csv")
     assert summary.get_column("variant").to_list() == [f"{model}_full"]
     assert (out / "manifest.json").exists()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        (
+            "architecture: deep_wide_gru",
+            "wide_hidden_sizes: [4]",
+            "wide_dropout_rates: [0.0]",
+        ),
+        (
+            "architecture: deep_wide_residual",
+            "wide_hidden_sizes: [4]",
+            "wide_dropout_rates: [0.0]",
+            "wide_residual_scale: 0.1",
+        ),
+    ],
+)
+def test_deep_wide_architectures_run_via_generic_runner(tmp_path, extra):
+    train = tmp_path / "train.parquet"
+    _write_fake_train(train)
+    cfg = tmp_path / "cfg.yaml"
+    _write_config(cfg, train, extra=extra)
+    out = tmp_path / "out"
+
+    rc = main(["--config", str(cfg), "--variants", "full", "--out-dir", str(out)])
+
+    assert rc == 0
+    summary = pl.read_csv(out / "summary.csv")
+    assert summary.get_column("variant").to_list() == ["gru_full"]
 
 
 @pytest.mark.parametrize("aux_set", ["base4", "target_family", "all9", "all11"])

@@ -109,6 +109,56 @@ def test_validate_gru_rejects_mismatched_dropouts():
         validate_gru_config(cfg)
 
 
+def test_gru_architecture_defaults_to_gru_mlp():
+    cfg = load_gru_config(PROJECT_ROOT / "configs" / "gru_v0.yaml")
+    assert cfg.architecture == "gru_mlp"
+    params = gru_params(cfg)
+    assert params["architecture"] == "gru_mlp"
+    # No wide/fusion shapes flow through unless a config opts in.
+    assert params["wide_hidden_sizes"] is None
+    assert params["fusion_hidden_sizes"] is None
+
+
+def test_deepwide_config_loads():
+    cfg = load_gru_config(PROJECT_ROOT / "configs" / "deepwide_gru_w128.yaml")
+    assert cfg.architecture == "deep_wide_gru"
+    assert cfg.wide_hidden_sizes == [128, 128]
+    assert cfg.wide_dropout_rates == [0.2, 0.1]
+    # Same data/aux settings as the gru_marketroll_v1 SOTA candidate.
+    assert cfg.aux_target_set == "all9"
+    assert cfg.use_market_avg is True and cfg.use_symbol_rolling is True
+
+
+def test_validate_gru_rejects_mismatched_wide_lengths():
+    cfg = GRUConfig(
+        train_path="x",
+        start_date_id=700,
+        end_date_id=None,
+        valid_days=200,
+        gap_days=0,
+        random_state=42,
+        architecture="deep_wide_gru",
+        wide_hidden_sizes=[128, 128],
+        wide_dropout_rates=[0.1],
+    )
+    with pytest.raises(ValueError, match="wide_dropout_rates length"):
+        validate_gru_config(cfg)
+
+
+def test_validate_gru_rejects_unknown_architecture():
+    cfg = GRUConfig(
+        train_path="x",
+        start_date_id=700,
+        end_date_id=None,
+        valid_days=200,
+        gap_days=0,
+        random_state=42,
+        architecture="transformer_wide",
+    )
+    with pytest.raises(ValueError, match="architecture must be one of"):
+        validate_gru_config(cfg)
+
+
 def test_validate_accepts_valid_config():
     cfg = _valid_config()
     assert validate_lgbm_config(cfg) is cfg
