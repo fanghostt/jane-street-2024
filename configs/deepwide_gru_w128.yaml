@@ -1,0 +1,52 @@
+# Deep & Wide GRU (wide=128) — architecture variant of gru_marketroll_v1.
+# Identical data / engineered-feature / aux-target / online settings as the
+# current SOTA candidate (configs/gru_marketroll_v1.yaml); the only change is the
+# per-head architecture: a deep RNN stack fused with a per-timestep wide MLP over
+# the raw standardized inputs. See js2024.modeling.gru._build_model.
+model: gru
+variants: [incremental]
+
+train_path: data/raw/train.parquet
+
+start_date_id: 700
+end_date_id: null
+
+test_days: 200
+valid_days: 200
+gap_days: 0
+update_cadence: 1
+
+random_state: 42
+device: auto
+include_time: true
+
+# Engineered features (leakage-safe; see js2024.modeling.market_features).
+use_market_avg: true
+use_symbol_rolling: true
+rolling_window: 1000
+
+aux_target_set: all9
+
+# Experiment tracking (offline-safe: writes to wandb/, sync later with `wandb sync`).
+use_wandb: true
+wandb_project: js2024-marketroll
+
+# fp32 (use_amp off) so the A/B stays comparable to the gru_v0 baselines.
+use_amp: false
+
+# Architecture: deep + wide fusion. Wide branch is a 128-wide MLP over raw inputs;
+# fusion MLP defaults to hidden_sizes_linear / dropout_rates_linear when omitted.
+architecture: deep_wide_gru
+wide_hidden_sizes: [128, 128]
+wide_dropout_rates: [0.2, 0.1]
+
+hidden_sizes: [500]
+dropout_rates: [0.3]
+hidden_sizes_linear: [500, 300]
+dropout_rates_linear: [0.2, 0.1]
+lr: 0.0005
+lr_refit: 0.0003
+epochs: 1000
+early_stopping_patience: 1
+weight_decay: 0.01
+grad_clip: 1.0
